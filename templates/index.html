@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>MASSOTERAPIA & PT di Christian Di Tommaso</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/main.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+<div class="app-container">
+
+    <!-- HEADER -->
+    <header class="app-header">
+        <div class="header-left">
+            <div class="logo-container">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="app-logo">
+            </div>
+            <div class="title-container">
+                <h1>MASSOTERAPIA & PT di Christian Di Tommaso</h1>
+                <span class="subtitle">Gestionale Appuntamenti</span>
+            </div>
+        </div>
+
+        <div class="header-right">
+
+    <a href="/clienti" class="btn-primary">
+        Archivio Clienti
+    </a>
+
+    <button class="btn-primary" onclick="apriModalCliente()">
+        + Nuovo Cliente
+    </button>
+
+</div>
+
+    </header>
+
+    <!-- CALENDARIO -->
+    <div class="calendar-wrapper">
+        <div id="calendar"></div>
+    </div>
+
+</div>
+
+
+<!-- MODALE -->
+<div id="eventoModal" class="modal">
+    <div class="modal-content modal-card-premium">
+        <span class="close" onclick="chiudiModal()">✖</span>
+        <h3 class="modal-title-premium modal-title-bar-premium">Nuovo Appuntamento</h3>
+
+        <div class="section">
+            <label>Cliente</label>
+            <input type="text" id="searchCliente" class="input-apple" placeholder="Scrivi nome o cognome..." autocomplete="off">
+            <div id="risultatiClienti" class="dropdown-risultati"></div>
+            <div id="clientiSelezionati" class="clienti-selezionati"></div>
+        </div>
+
+        <div class="section">
+            <label>Servizio</label>
+            <select id="servizioSelect" class="input-apple"></select>
+        </div>
+
+        <div class="section">
+            <label>Pacchetto (opzionale)</label>
+            <select id="pacchettoSelect" class="input-apple">
+                <option value="">Nessun pacchetto</option>
+            </select>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn-apple-primary" onclick="salvaEvento()">Salva Appuntamento</button>
+        </div>
+    </div>
+</div>
+<!-- MODALE CLIENTE -->
+<div id="clienteModal" class="modal">
+    <div class="modal-content modal-card-premium">
+        <span class="close" onclick="chiudiModalCliente()">✖</span>
+        <h3 class="modal-title-premium modal-title-bar-premium">Nuovo Cliente</h3>
+
+        <input type="text" id="nomeCliente" class="input-apple" placeholder="Nome">
+        <input type="text" id="cognomeCliente" class="input-apple" placeholder="Cognome">
+        <input type="text" id="telefonoCliente" class="input-apple" placeholder="Telefono">
+        <input type="email" id="emailCliente" class="input-apple" placeholder="Email">
+        <textarea id="noteClinicheCliente" class="input-apple" placeholder="Note cliniche"></textarea>
+
+        <button class="btn-apple-primary" onclick="salvaCliente()">Salva Cliente</button>
+    </div>
+</div>
+
+<!-- MODALE MODIFICA -->
+<div id="modificaModal" class="modal">
+    <div class="modal-content modal-card-premium">
+        <span class="close" onclick="chiudiModificaModal()">✖</span>
+        <h3 class="modal-title-premium modal-title-bar-premium">Modifica Appuntamento</h3>
+
+        <label>Data</label>
+        <input type="date" id="dataModifica" class="input-apple">
+
+        <label>Ora Inizio</label>
+        <input type="time" id="oraInizioModifica" class="input-apple">
+
+        <label>Ora Fine</label>
+        <input type="time" id="oraFineModifica" class="input-apple">
+
+        <label>Stato</label>
+        <select id="statoSelect" class="input-apple">
+            <option value="prenotato">Prenotato</option>
+            <option value="svolto">Svolto</option>
+            <option value="annullato">Annullato</option>
+            <option value="no_show">No Show</option>
+        </select>
+
+        <button type="button" class="btn-apple-ghost" onclick="inviaPromemoria()">📧 Invia Promemoria</button>
+        <button type="button" class="btn-apple-primary" onclick="salvaModifiche()">Salva Modifiche</button>
+        <button type="button" class="btn-apple-ghost" style="border:1px solid #ef4444;color:#ef4444;" onclick="eliminaEvento()">Elimina Appuntamento</button>
+    </div>
+</div>
+
+
+<script src="/static/main.js"></script>
+
+
+</body>
+</html>

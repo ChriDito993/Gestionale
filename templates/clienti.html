@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>MASSOTERAPIA & PT di Christian Di Tommaso</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="app-container">
+
+    <header class="app-header">
+        <h1>Anagrafiche Clienti</h1>
+        <a href="/" class="btn-primary">← Torna al Calendario</a>
+    </header>
+
+    <!-- BARRA RICERCA -->
+    <div class="search-wrapper">
+        <input type="text" id="searchInput" placeholder="🔎 Cerca cliente per nome o cognome...">
+    </div>
+
+    <!-- TOGGLE VISTA -->
+    <div class="view-toggle premium-toggle">
+        <button id="gridViewBtn" class="toggle-btn active" type="button">
+            Vista Box
+        </button>
+        <button id="listViewBtn" class="toggle-btn" type="button">
+            Vista Lista
+        </button>
+    </div>
+
+    <!-- MESSAGGIO NESSUN RISULTATO -->
+    <div id="noResults" style="display:none; margin-bottom:20px; color:#6b7280;">
+        Nessun cliente trovato
+    </div>
+
+    <div class="card-grid grid-view" id="clientiContainer">
+        {% for cliente in clienti %}
+        <a href="/cliente/{{ cliente.id }}"
+           class="cliente-card-link cliente-item"
+           data-nome="{{ cliente.nome|lower }}"
+           data-cognome="{{ cliente.cognome|lower }}">
+
+            <div class="cliente-card">
+                <h3>{{ cliente.nome }} {{ cliente.cognome }}</h3>
+
+                <p><strong>Telefono:</strong> {{ cliente.telefono or "-" }}</p>
+                <p><strong>Email:</strong> {{ cliente.email or "-" }}</p>
+
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+
+</div>
+
+<script>
+const searchInput = document.getElementById("searchInput");
+const clienti = document.querySelectorAll(".cliente-item");
+const noResults = document.getElementById("noResults");
+
+// Blocca Invio
+searchInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") {
+        e.preventDefault();
+    }
+});
+
+// Ricerca live
+searchInput.addEventListener("keyup", function() {
+    let value = this.value.toLowerCase();
+    let visibleCount = 0;
+
+    clienti.forEach(function(cliente) {
+        let nome = cliente.getAttribute("data-nome");
+        let cognome = cliente.getAttribute("data-cognome");
+
+        if (nome.includes(value) || cognome.includes(value)) {
+            cliente.style.display = "block";
+            visibleCount++;
+        } else {
+            cliente.style.display = "none";
+        }
+    });
+
+    // Mostra messaggio se nessun risultato
+    if (visibleCount === 0) {
+        noResults.style.display = "block";
+    } else {
+        noResults.style.display = "none";
+    }
+});
+// Toggle Vista Grid / Lista
+const gridBtn = document.getElementById("gridViewBtn");
+const listBtn = document.getElementById("listViewBtn");
+const container = document.getElementById("clientiContainer");
+
+gridBtn.addEventListener("click", function() {
+    container.classList.remove("list-view");
+    container.classList.add("grid-view");
+    gridBtn.classList.add("active");
+    listBtn.classList.remove("active");
+});
+
+listBtn.addEventListener("click", function() {
+    container.classList.remove("grid-view");
+    container.classList.add("list-view");
+    listBtn.classList.add("active");
+    gridBtn.classList.remove("active");
+});
+</script>
+
+</body>
+</html>

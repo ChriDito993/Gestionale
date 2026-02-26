@@ -1,0 +1,839 @@
+/* ========================= */
+/* BASE */
+/* ========================= */
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: linear-gradient(135deg, #eef2f7, #f8fafc);
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    color: #1f2937;
+}
+
+/* ========================= */
+/* GLOBAL FONT CONSISTENCY   */
+/* ========================= */
+
+html, button, input, select, textarea {
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+}
+
+/* ========================= */
+/* CONTAINER */
+/* ========================= */
+
+.app-container {
+    padding: 40px 60px;
+}
+
+/* ========================= */
+/* HEADER PREMIUM */
+/* ========================= */
+
+.app-header {
+    background: linear-gradient(135deg, #111827, #1f2937);
+    padding: 22px 40px;
+    border-radius: 22px;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.15);
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 35px;
+}
+
+.app-header h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.subtitle {
+    font-size: 13px;
+    color: rgba(255,255,255,0.7);
+}
+
+/* ========================= */
+/* LOGO PREMIUM HEADER */
+/* ========================= */
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.logo-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.app-logo {
+    height: 70px !important;
+    width: auto !important;
+    object-fit: contain;
+    display: block;
+    transition: transform 0.25s ease;
+}
+
+.app-logo:hover {
+    transform: scale(1.05);
+    opacity: 0.9;
+}
+
+.title-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.title-container h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.title-container .subtitle {
+    font-size: 12px;
+    opacity: 0.7;
+    margin-top: 3px;
+}
+
+/* ========================= */
+/* BOTTONI PREMIUM */
+/* ========================= */
+
+.btn-primary,
+.btn-primary:link,
+.btn-primary:visited {
+    background: linear-gradient(135deg, #2a9d8f, #21867a);
+    border: none;
+    padding: 11px 20px;
+    border-radius: 12px;
+    color: white;
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    box-shadow: 0 10px 25px rgba(42,157,143,0.35);
+    text-decoration: none;
+    display: inline-block;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 35px rgba(42,157,143,0.45);
+    text-decoration: none;
+}
+
+.btn-secondary {
+    background: #e5e7eb;
+    padding: 10px 18px;
+    border-radius: 12px;
+    color: #1f2937;
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.header-right {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+}
+
+/* ========================= */
+/* CALENDARIO CARD */
+/* ========================= */
+
+.calendar-wrapper {
+    background: rgba(255,255,255,0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    padding: 32px;
+    border-radius: 26px;
+    box-shadow: 0 30px 70px rgba(0,0,0,0.08);
+    border: 1px solid rgba(255,255,255,0.6);
+    transition: all 0.25s ease;
+}
+
+.fc {
+    border-radius: 18px;
+}
+
+/* Smooth week transition */
+.fc-view-harness {
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+/* Slightly stronger grid lines */
+.fc-theme-standard td,
+.fc-theme-standard th {
+    border-color: #dbe2ea !important;
+}
+
+/* Make vertical and horizontal lines slightly more visible */
+.fc-timegrid-slot,
+.fc-timegrid-col {
+    border-color: #e2e8f0 !important;
+}
+
+/* Fill header row (days) softly */
+.fc-col-header {
+    background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+}
+
+/* Fill time column softly */
+.fc-timegrid-axis {
+    background: #f8fafc;
+}
+
+/* Day hover micro highlight */
+.fc-timegrid-col:hover {
+    background: rgba(17,24,39,0.035);
+    transition: background 0.2s ease;
+}
+
+/* Header day hover */
+.fc-col-header-cell:hover {
+    background: rgba(17,24,39,0.05);
+    transition: background 0.2s ease;
+}
+
+/* Refined lunch break band (13:30–15:00 approx) */
+.fc-timegrid-slot[data-time^="13:3"],
+.fc-timegrid-slot[data-time^="14:"] {
+    background: linear-gradient(
+        to right,
+        rgba(17,24,39,0.035),
+        rgba(17,24,39,0.02)
+    );
+}
+
+/* Subtle separator line above lunch */
+.fc-timegrid-slot[data-time^="13:3"] {
+    border-top: 2px solid rgba(17,24,39,0.12) !important;
+}
+
+/* Slightly refine today background */
+.fc-day-today {
+    background: rgba(17,24,39,0.06) !important;
+}
+
+.fc-theme-standard td,
+.fc-theme-standard th {
+    border-color: #eef2f7 !important;
+}
+
+.fc-timegrid-slot {
+    height: 48px !important;
+}
+
+.fc-timegrid-axis {
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.fc-col-header-cell {
+    padding: 14px 0 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #374151 !important;
+}
+
+.fc-day-today {
+    background: rgba(17,24,39,0.04) !important;
+}
+
+.fc-timegrid-now-indicator-line {
+    border-color: #111827 !important;
+    border-width: 2px !important;
+}
+
+.fc-timegrid-now-indicator-arrow {
+    border-top-color: #111827 !important;
+}
+
+.fc-toolbar-title {
+    font-size: 22px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.3px;
+    color: #111827 !important;
+}
+
+.fc-event {
+    border: none !important;
+    border-radius: 12px !important;
+    font-weight: 500;
+    padding: 6px 12px !important;
+    font-size: 0.82rem;
+    color: #ffffff !important;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    backdrop-filter: blur(6px);
+}
+
+.fc-event:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.16);
+}
+
+/* ========================= */
+/* MODAL SaaS V2 */
+/* ========================= */
+
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    inset: 0;
+    background: rgba(15,23,42,0.55);
+    backdrop-filter: blur(10px);
+}
+
+.modal-content {
+    background: white;
+    width: 480px;
+    max-width: 95%;
+    padding: 40px;
+    margin: 6% auto;
+    border-radius: 26px;
+    box-shadow: 0 40px 90px rgba(0,0,0,0.25);
+    animation: fadeInModal 0.25s ease;
+}
+
+.modal-content h3 {
+    margin: 0 0 30px 0;
+    font-weight: 600;
+    font-size: 22px;
+}
+
+.section {
+    margin-bottom: 26px;
+}
+
+.section label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: #6b7280;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.close {
+    position: absolute;
+    right: 25px;
+    top: 22px;
+    cursor: pointer;
+    font-size: 18px;
+    opacity: 0.5;
+}
+
+.close:hover {
+    opacity: 1;
+}
+
+.modal-footer {
+    margin-top: 35px;
+}
+
+
+
+/* ========================= */
+/* INPUT SaaS */
+/* ========================= */
+
+input, select, textarea {
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    font-size: 14px;
+    margin-top: 6px;
+}
+
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #111827;
+    background: white;
+    box-shadow: 0 0 0 4px rgba(17,24,39,0.15);
+}
+
+select {
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg fill='%236b7280' height='20' viewBox='0 0 20 20' width='20' xmlns='http://www.w3.org/2000/svg'><path d='M5 7l5 5 5-5H5z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+    background-size: 16px;
+}
+
+/* ========================= */
+/* CLIENTI CARDS */
+/* ========================= */
+
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 25px;
+}
+
+.cliente-card {
+    background: rgba(255,255,255,0.65);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    padding: 25px;
+    border-radius: 22px;
+    border: 1px solid rgba(255,255,255,0.6);
+    box-shadow: 0 25px 60px rgba(0,0,0,0.08);
+    transition: all 0.25s ease;
+}
+
+.cliente-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 30px 70px rgba(0,0,0,0.12);
+    background: rgba(255,255,255,0.75);
+    border: 1px solid rgba(255,255,255,0.9);
+}
+
+
+/* ========================= */
+/* CLIENTI LIST VIEW */
+/* ========================= */
+
+.card-grid.list-view {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.card-grid.list-view .cliente-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 28px;
+    border-radius: 18px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.06);
+    transition: all 0.25s ease;
+}
+
+.card-grid.list-view .cliente-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 45px rgba(0,0,0,0.08);
+}
+
+.card-grid.list-view .cliente-card h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.card-grid.list-view .cliente-card p {
+    margin: 4px 0 0 0;
+    font-size: 13px;
+    opacity: 0.7;
+}
+
+/* ========================= */
+/* BADGE CLIENTI */
+/* ========================= */
+
+.clienti-selezionati span {
+    display: inline-block;
+    margin: 6px 6px 0 0;
+    padding: 7px 14px;
+    background: linear-gradient(135deg, #2a9d8f, #21867a);
+    color: white;
+    border-radius: 25px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+/* ========================= */
+/* DROPDOWN RICERCA */
+/* ========================= */
+
+.dropdown-risultati {
+    border-radius: 14px;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+    max-height: 180px;
+    overflow-y: auto;
+    background: white;
+    display: none;
+}
+
+.dropdown-risultati div {
+    padding: 10px;
+    cursor: pointer;
+}
+
+.dropdown-risultati div:hover {
+    background-color: #f1f5f9;
+}
+
+/* ========================= */
+/* ANIMAZIONI */
+/* ========================= */
+
+@keyframes fadeInModal {
+    from {
+        opacity: 0;
+        transform: translateY(-15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ========================= */
+/* FULLCALENDAR HEADER PREMIUM V2 */
+/* ========================= */
+
+.fc .fc-toolbar .fc-button {
+    background: #f3f4f6 !important;
+    border: 1px solid #e5e7eb !important;
+    color: #111827 !important;
+    padding: 6px 16px !important;
+    border-radius: 12px !important;
+    font-weight: 500 !important;
+    font-size: 13px !important;
+    box-shadow: none !important;
+    transition: background 0.2s ease, transform 0.15s ease !important;
+}
+
+/* Hover */
+.fc .fc-toolbar .fc-button:hover {
+    background: #e5e7eb !important;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.12) !important;
+    color: #111827 !important;
+}
+
+/* Vista attiva */
+.fc .fc-toolbar .fc-button.fc-button-active {
+    background: #111827 !important;
+    color: #ffffff !important;
+    border: 1px solid #111827 !important;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.18) !important;
+}
+
+/* Bottone Oggi */
+.fc .fc-toolbar .fc-today-button {
+    background: #f3f4f6 !important;
+    border: 1px solid #e5e7eb !important;
+    color: #111827 !important;
+}
+
+.fc .fc-toolbar .fc-today-button:hover {
+    background: #e5e7eb !important;
+    color: #111827 !important;
+}
+
+/* Prev / Next minimal */
+.fc .fc-toolbar .fc-prev-button,
+.fc .fc-toolbar .fc-next-button {
+    padding: 6px 10px !important;
+    border-radius: 10px !important;
+    background: #f3f4f6 !important;
+    border: 1px solid #e5e7eb !important;
+    color: #111827 !important;
+}
+
+.fc .fc-toolbar .fc-prev-button:hover,
+.fc .fc-toolbar .fc-next-button:hover {
+    background: #0f172a !important;
+}
+
+/* Spaziatura gruppi */
+.fc .fc-toolbar-chunk {
+    display: flex;
+    gap: 12px;
+}
+
+/* Titolo calendario */
+.fc .fc-toolbar-title {
+    font-size: 22px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.4px;
+    color: #0f172a !important;
+}
+
+/* ========================= */
+/* PREMIUM TOGGLE VISTA CLIENTI - APPLE LEVEL */
+/* ========================= */
+
+.premium-toggle {
+    display: inline-flex;
+    background: #f3f4f6;
+    padding: 4px;
+    border-radius: 14px;
+    margin-bottom: 25px;
+    border: 1px solid #e5e7eb;
+}
+
+.toggle-btn {
+    border: none;
+    background: transparent;
+    padding: 8px 18px;
+    border-radius: 10px;
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    color: #374151;
+    transition: all 0.2s ease;
+}
+
+.toggle-btn:hover {
+    background: rgba(0,0,0,0.04);
+}
+
+.toggle-btn.active {
+    background: #ffffff;
+    color: #111827;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.toggle-btn.active:hover {
+    transform: none;
+}
+
+/* ========================= */
+/* STAMPA */
+/* ========================= */
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+
+    .detail-card, .detail-card * {
+        visibility: visible;
+    }
+
+    .detail-card {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+    }
+
+    button {
+        display: none;
+    }
+}
+
+
+/* ========================= */
+/* TOAST INLINE (POPUP STYLE) */
+/* ========================= */
+
+#modificaModal .toast-inline {
+    margin: 18px 0 0 0;
+    padding: 14px 16px;
+    border-radius: 18px;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    width: 100%;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: all 0.25s ease;
+}
+
+#modificaModal .toast-inline.toast-success {
+    background: linear-gradient(135deg,#2a9d8f,#21867a);
+    color: white;
+    box-shadow: 0 15px 35px rgba(42,157,143,0.35);
+}
+
+#modificaModal .toast-inline.toast-error {
+    background: linear-gradient(135deg,#ef4444,#dc2626);
+    color: white;
+    box-shadow: 0 15px 35px rgba(239,68,68,0.35);
+}
+
+#modificaModal .toast-inline.toast-show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* ========================= */
+/* TOAST PRO ELEMENTS */
+/* ========================= */
+
+#modificaModal .toast-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+#modificaModal .toast-icon {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+#modificaModal .toast-message {
+    font-weight: 600;
+}
+
+#modificaModal .toast-progress {
+    position: relative;
+    height: 4px;
+    width: 100%;
+    margin-top: 10px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.25);
+    overflow: hidden;
+}
+
+#modificaModal .toast-progress::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 100%;
+    background: rgba(255,255,255,0.9);
+    transform-origin: left;
+    transform: scaleX(1);
+}
+
+@keyframes toastProgress {
+    from {
+        transform: scaleX(1);
+    }
+    to {
+        transform: scaleX(0);
+    }
+}
+
+#modificaModal .toast-progress::after {
+    animation: toastProgress 2.5s linear forwards;
+}
+
+/* ========================= */
+/* CLIENTI LINK CLEAN OVERRIDE */
+/* ========================= */
+
+.cliente-card-link,
+.cliente-card-link:link,
+.cliente-card-link:visited {
+    text-decoration: none !important;
+    color: inherit !important;
+    display: block;
+}
+
+.cliente-card-link:hover {
+    text-decoration: none !important;
+}
+
+.cliente-card-link .cliente-card h3 {
+    color: #111827 !important;
+    font-weight: 600;
+    transition: opacity 0.2s ease;
+}
+
+.cliente-card-link:hover .cliente-card h3 {
+    opacity: 0.85;
+}
+
+.cliente-card-link .cliente-card p {
+    color: #374151;
+    font-weight: 500;
+}
+
+/* =====================================================
+   DESIGN SYSTEM – APPLE MINIMAL + ACCENTO SERVIZIO
+   (Incrementale – non sovrascrive stili esistenti)
+===================================================== */
+
+.modal-card-premium {
+    border-radius: 20px;
+    padding: 40px;
+    background: #ffffff;
+    box-shadow: 0 30px 70px rgba(0,0,0,0.12);
+    transition: all 0.25s ease;
+    border: 1px solid rgba(17,24,39,0.08);
+}
+
+.modal-title-premium {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    margin-bottom: 22px;
+}
+
+.modal-title-bar-premium {
+    border-left: 4px solid #111827;
+    padding-left: 16px;
+}
+
+.input-apple {
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.input-apple:focus {
+    outline: none;
+    border-color: #2563eb;
+    background: #ffffff;
+    box-shadow: 0 0 0 4px rgba(37,99,235,0.15);
+}
+
+.btn-apple-primary {
+    width: 100%;
+    padding: 16px;
+    border-radius: 18px;
+    border: none;
+    background: linear-gradient(135deg, #111827, #1f2937);
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 15px 35px rgba(17,24,39,0.35);
+    transition: all 0.2s ease;
+}
+
+.btn-apple-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 45px rgba(17,24,39,0.45);
+}
+
+.btn-apple-ghost {
+    width: 100%;
+    padding: 14px;
+    border-radius: 16px;
+    background: transparent;
+    border: 1px solid #e5e7eb;
+    color: #1f2937;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-apple-ghost:hover {
+    background: #f3f4f6;
+}
+
+.smallcaps-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #6b7280;
+}
