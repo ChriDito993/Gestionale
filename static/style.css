@@ -837,3 +837,21 @@ select {
     text-transform: uppercase;
     color: #6b7280;
 }
+
+/* ========================= */
+/* FIX BOTTONE PROMEMORIA    */
+/* ========================= */
+
+.btn-promemoria,
+button.btn-promemoria {
+    background: linear-gradient(135deg, #2a9d8f, #21867a) !important;
+    color: #ffffff !important;
+    border: none !important;
+    box-shadow: 0 12px 30px rgba(42,157,143,0.35) !important;
+}
+
+.btn-promemoria:hover,
+button.btn-promemoria:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 18px 40px rgba(42,157,143,0.45) !important;
+}
