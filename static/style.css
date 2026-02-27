@@ -153,7 +153,7 @@ html, button, input, select, textarea {
     background: rgba(255,255,255,0.75);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    padding: 32px;
+    padding: 24px;
     border-radius: 26px;
     box-shadow: 0 30px 70px rgba(0,0,0,0.08);
     border: 1px solid rgba(255,255,255,0.6);
@@ -229,7 +229,7 @@ html, button, input, select, textarea {
 }
 
 .fc-timegrid-slot {
-    height: 48px !important;
+    height: 34px !important;
 }
 
 .fc-timegrid-axis {
@@ -239,7 +239,7 @@ html, button, input, select, textarea {
 }
 
 .fc-col-header-cell {
-    padding: 14px 0 !important;
+    padding: 8px 0 !important;
     font-size: 13px !important;
     font-weight: 600 !important;
     color: #374151 !important;
@@ -259,7 +259,7 @@ html, button, input, select, textarea {
 }
 
 .fc-toolbar-title {
-    font-size: 22px !important;
+    font-size: 20px !important;
     font-weight: 600 !important;
     letter-spacing: 0.3px;
     color: #111827 !important;
@@ -561,7 +561,7 @@ select {
 
 /* Titolo calendario */
 .fc .fc-toolbar-title {
-    font-size: 22px !important;
+    font-size: 20px !important;
     font-weight: 600 !important;
     letter-spacing: 0.4px;
     color: #0f172a !important;
@@ -838,36 +838,358 @@ select {
     color: #6b7280;
 }
 
+
 /* ========================= */
-/* FIX BOTTONE PROMEMORIA    */
+/* PROMEMORIA BUTTON DEFINITIVO */
 /* ========================= */
 
-.btn-promemoria,
-button.btn-promemoria {
-    background: linear-gradient(135deg, #2a9d8f, #21867a) !important;
-    color: #ffffff !important;
-    border: none !important;
-    box-shadow: 0 12px 30px rgba(42,157,143,0.35) !important;
+#modificaModal .btn-promemoria {
+    width: 100%;
+    padding: 14px;
+    border-radius: 16px;
+    border: none;
+    background: linear-gradient(135deg, #2a9d8f, #21867a);
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    box-shadow: 0 12px 30px rgba(42,157,143,0.35);
+    transition: all 0.2s ease;
 }
 
-.btn-promemoria:hover,
-button.btn-promemoria:hover {
+#modificaModal .btn-promemoria:hover {
     transform: translateY(-1px);
-    box-shadow: 0 18px 40px rgba(42,157,143,0.45) !important;
+    box-shadow: 0 18px 40px rgba(42,157,143,0.45);
 }
 
 /* ========================= */
-/* FORCE PROMEMORIA MODAL BTN */
+/* MODAL FOOTER VERTICAL LAYOUT */
 /* ========================= */
 
-#modificaModal button:not(.btn-apple-primary) {
-    background: linear-gradient(135deg, #2a9d8f, #21867a) !important;
-    color: #ffffff !important;
-    border: none !important;
-    box-shadow: 0 12px 30px rgba(42,157,143,0.35) !important;
+.modal-footer-vertical {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 28px;
 }
 
-#modificaModal button:not(.btn-apple-primary):hover {
+/* ========================= */
+/* DANGER BUTTON REFINEMENT */
+/* ========================= */
+
+#modificaModal .btn-danger {
+    width: 100%;
+    padding: 14px;
+    border-radius: 16px;
+    background: transparent;
+    border: 1px solid #ef4444;
+    color: #ef4444;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#modificaModal .btn-danger:hover {
+    background: #ef4444;
+    color: #ffffff;
+    box-shadow: 0 12px 30px rgba(239,68,68,0.35);
+}
+
+/* ========================= */
+/* CLIENTE DETTAGLIO PAGE */
+/* ========================= */
+
+.cliente-dettaglio-page .detail-card {
+    background: rgba(255,255,255,0.82);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(17,24,39,0.06);
+    border-radius: 26px;
+    box-shadow: 0 30px 70px rgba(15,23,42,0.10);
+    padding: 32px;
+    margin-bottom: 28px;
+    transition: all 0.25s ease;
+}
+
+.cliente-dettaglio-page .detail-card h3 {
+    margin: 0 0 22px 0;
+    font-size: 21px;
+    color: #0f172a;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    position: relative;
+}
+
+.cliente-dettaglio-page .detail-card h3::after {
+    content: "";
+    display: block;
+    width: 42px;
+    height: 3px;
+    margin-top: 10px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #2a9d8f, #21867a);
+    opacity: 0.9;
+}
+
+.cliente-dettaglio-page .detail-card hr {
+    border: 0;
+    border-top: 1px solid #e5e7eb;
+    margin: 24px 0;
+}
+
+.cliente-dettaglio-page .detail-empty-state {
+    margin: 6px 0 0;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.cliente-dettaglio-page .package-form {
+    display: grid;
+    gap: 14px;
+}
+
+.cliente-dettaglio-page .package-submit-btn {
+    border-radius: 14px;
+    padding: 14px 18px;
+    font-size: 14px;
+}
+
+.cliente-dettaglio-page .pacchetti-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 12px;
+}
+
+.cliente-dettaglio-page .pacchetto-item {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 14px 16px;
+}
+
+.cliente-dettaglio-page .pacchetto-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.cliente-dettaglio-page .pacchetto-name {
+    color: #111827;
+    font-size: 15px;
+}
+
+.cliente-dettaglio-page .pacchetto-restanti {
+    font-size: 12px;
+    font-weight: 600;
+    color: #2a9d8f;
+    background: rgba(42,157,143,0.12);
+    border: 1px solid rgba(42,157,143,0.25);
+    border-radius: 999px;
+    padding: 4px 10px;
+    white-space: nowrap;
+}
+
+.cliente-dettaglio-page .pacchetto-progress-meta {
+    color: #4b5563;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.cliente-dettaglio-page .pacchetto-progress-track {
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.cliente-dettaglio-page .pacchetto-progress-fill {
+    height: 100%;
+    background: linear-gradient(135deg, #2a9d8f, #21867a);
+}
+
+.cliente-dettaglio-page .pacchetto-close-form {
+    margin: 0;
+}
+
+.cliente-dettaglio-page .btn-danger-soft {
+    border: 1px solid rgba(239,68,68,0.5);
+    background: rgba(239,68,68,0.08);
+    color: #b91c1c;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.cliente-dettaglio-page .btn-danger-soft:hover {
+    background: #ef4444;
+    color: #ffffff;
+    box-shadow: 0 8px 18px rgba(239,68,68,0.28);
+}
+
+.cliente-dettaglio-page .future-app-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 12px;
+}
+
+.cliente-dettaglio-page .future-app-item {
+    background: rgba(255,255,255,0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(17,24,39,0.08);
+    border-radius: 18px;
+    padding: 18px;
+    box-shadow: 0 15px 35px rgba(15,23,42,0.06);
+    transition: all 0.2s ease;
+}
+
+.cliente-dettaglio-page .future-app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    color: #111827;
+}
+
+.cliente-dettaglio-page .future-app-header strong {
+    font-size: 14px;
+}
+
+.cliente-dettaglio-page .future-app-header span {
+    color: #4b5563;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.cliente-dettaglio-page .future-status-form {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.cliente-dettaglio-page .future-status-form .status-select {
+    margin-top: 0;
+    padding: 10px 12px;
+    border-radius: 12px;
+}
+
+.cliente-dettaglio-page .future-save-btn {
+    width: auto;
+    padding: 8px 18px;
+    border-radius: 14px;
+    font-size: 13px;
+    font-weight: 600;
+    background: linear-gradient(135deg, #111827, #1f2937);
+    box-shadow: 0 8px 18px rgba(17,24,39,0.25);
+}
+
+.cliente-dettaglio-page .future-save-btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 18px 40px rgba(42,157,143,0.45) !important;
+    box-shadow: 0 12px 24px rgba(17,24,39,0.35);
+}
+
+.cliente-dettaglio-page .btn-promemoria-pdf {
+    margin-top: 16px;
+}
+
+/* ========================= */
+/* ANAGRAFICA PREMIUM REFINEMENT */
+/* ========================= */
+
+.cliente-dettaglio-page .detail-card form {
+    display: grid;
+    gap: 18px;
+}
+
+.cliente-dettaglio-page .detail-card .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+}
+
+.cliente-dettaglio-page .detail-card label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #6b7280;
+    margin-bottom: 6px;
+    display: block;
+}
+
+.cliente-dettaglio-page .detail-card input,
+.cliente-dettaglio-page .detail-card select,
+.cliente-dettaglio-page .detail-card textarea {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 13px 14px;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.cliente-dettaglio-page .detail-card input:focus,
+.cliente-dettaglio-page .detail-card select:focus,
+.cliente-dettaglio-page .detail-card textarea:focus {
+    background: #ffffff;
+    border-color: #2a9d8f;
+    box-shadow: 0 0 0 4px rgba(42,157,143,0.15);
+}
+
+.cliente-dettaglio-page .detail-card textarea {
+    min-height: 110px;
+    resize: vertical;
+}
+
+.cliente-dettaglio-page .detail-card .btn-primary {
+    width: fit-content;
+    padding: 10px 22px;
+    border-radius: 14px;
+    font-size: 13px;
+}
+
+.cliente-dettaglio-page .detail-card .btn-primary:hover {
+    transform: translateY(-1px);
+}
+
+.cliente-dettaglio-page .detail-card .section-divider {
+    height: 1px;
+    background: #e5e7eb;
+    margin: 26px 0;
+}
+
+@media (max-width: 900px) {
+    .cliente-dettaglio-page .detail-card {
+        padding: 22px;
+        border-radius: 18px;
+    }
+
+    .cliente-dettaglio-page .detail-card .form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .cliente-dettaglio-page .future-status-form {
+        grid-template-columns: 1fr;
+    }
+
+    .cliente-dettaglio-page .future-save-btn {
+        width: 100%;
+    }
+
+    .cliente-dettaglio-page .pacchetto-top-row,
+    .cliente-dettaglio-page .future-app-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }

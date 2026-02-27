@@ -27,16 +27,14 @@
         </div>
 
         <div class="header-right">
+            <a href="/clienti" class="btn-primary">
+                Archivio Clienti
+            </a>
 
-    <a href="/clienti" class="btn-primary">
-        Archivio Clienti
-    </a>
-
-    <button class="btn-primary" onclick="apriModalCliente()">
-        + Nuovo Cliente
-    </button>
-
-</div>
+            <button class="btn-primary" onclick="apriModalCliente()">
+                + Nuovo Cliente
+            </button>
+        </div>
 
     </header>
 
@@ -117,9 +115,11 @@
             <option value="no_show">No Show</option>
         </select>
 
-        <button type="button" class="btn-apple-ghost" onclick="inviaPromemoria()">📧 Invia Promemoria</button>
-        <button type="button" class="btn-apple-primary" onclick="salvaModifiche()">Salva Modifiche</button>
-        <button type="button" class="btn-apple-ghost" style="border:1px solid #ef4444;color:#ef4444;" onclick="eliminaEvento()">Elimina Appuntamento</button>
+        <div class="modal-footer modal-footer-vertical">
+            <button type="button" class="btn-promemoria" onclick="inviaPromemoria()">Invia Promemoria</button>
+            <button type="button" class="btn-apple-primary" onclick="salvaModifiche()">Salva Modifiche</button>
+            <button type="button" class="btn-apple-ghost btn-danger" onclick="eliminaEvento()">Elimina Appuntamento</button>
+        </div>
     </div>
 </div>
 

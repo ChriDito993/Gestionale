@@ -5,7 +5,7 @@
     <title>MASSOTERAPIA & PT di Christian Di Tommaso</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body class="cliente-dettaglio-page">
 
 <div class="app-container">
 
@@ -62,51 +62,61 @@
     </div>
 
     <!-- CARD PACCHETTI -->
-<div class="detail-card">
-    <h3>Assegna Nuovo Pacchetto</h3>
+    <div class="detail-card detail-card-packages">
+        <h3>Assegna Nuovo Pacchetto</h3>
 
-    <form method="POST" action="/assegna_pacchetto">
-        <input type="hidden" name="cliente_id" value="{{ cliente.id }}">
+        <form method="POST" action="/assegna_pacchetto" class="package-form">
+            <input type="hidden" name="cliente_id" value="{{ cliente.id }}">
 
-        <select name="tipo_pacchetto_id" required>
-            <option value="">Seleziona pacchetto</option>
-            {% for pac in tipi_pacchetto %}
-                <option value="{{ pac.id }}">
-                    {{ pac.nome }} ({{ pac.numero_sedute }} sedute)
-                </option>
+            <select name="tipo_pacchetto_id" required class="input-apple">
+                <option value="">Seleziona pacchetto</option>
+                {% for pac in tipi_pacchetto %}
+                    <option value="{{ pac.id }}">
+                        {{ pac.nome }} ({{ pac.numero_sedute }} sedute)
+                    </option>
+                {% endfor %}
+            </select>
+
+            <button type="submit" class="btn-apple-primary package-submit-btn">Assegna Pacchetto</button>
+        </form>
+    </div>
+
+    <!-- CARD PACCHETTI ATTIVI -->
+    <div class="detail-card detail-card-packages">
+        <h3>Pacchetti Attivi</h3>
+
+        {% if pacchetti_cliente %}
+            <ul class="pacchetti-list">
+            {% for pac in pacchetti_cliente %}
+            {% set tipo_pacchetto = pac.tipi_pacchetto or {} %}
+            {% set sedute_totali = (tipo_pacchetto.numero_sedute or 0)|int %}
+            {% set sedute_effettuate = (pac.sedute_effettuate or 0)|int %}
+            {% set progress = ((sedute_effettuate * 100) / sedute_totali) if sedute_totali > 0 else 0 %}
+            {% set progress_width = (progress if progress < 100 else 100)|round(0, 'floor') %}
+            <li class="pacchetto-item">
+                <div class="pacchetto-top-row">
+                    <strong class="pacchetto-name">{{ tipo_pacchetto.nome or "Pacchetto" }}</strong>
+                    <span class="pacchetto-restanti">Restanti: {{ pac.sedute_rimanenti or 0 }}</span>
+                </div>
+
+                <div class="pacchetto-progress-meta">
+                    Sedute effettuate: {{ sedute_effettuate }} / {{ sedute_totali }}
+                </div>
+
+                <div class="pacchetto-progress-track">
+                    <div class="pacchetto-progress-fill" style="width: {{ progress_width }}%"></div>
+                </div>
+
+                <form method="POST" action="/chiudi_pacchetto/{{ pac.id }}" class="pacchetto-close-form">
+                    <button type="submit" class="btn-danger-soft">Chiudi Pacchetto</button>
+                </form>
+            </li>
             {% endfor %}
-        </select>
-
-        <button type="submit" class="btn-primary">Assegna</button>
-    </form>
-</div>
-
-<!-- CARD PACCHETTI ATTIVI -->
-<div class="detail-card">
-    <h3>Pacchetti Attivi</h3>
-
-    {% if pacchetti_cliente %}
-        <ul>
-        {% for pac in pacchetti_cliente %}
-        <li>
-            {{ pac.tipi_pacchetto.nome }} —
-            Sedute effettuate: {{ pac.sedute_effettuate }} /
-            {{ pac.tipi_pacchetto.numero_sedute }}
-            <br>
-            <strong>Restanti: {{ pac.sedute_rimanenti }}</strong>
-
-            <form method="POST" action="/chiudi_pacchetto/{{ pac.id }}" style="margin-top:8px;">
-            <button type="submit" style="background:red;color:white;padding:5px 10px;border:none;border-radius:5px;">
-            Chiudi Pacchetto
-            </button>
-            </form>
-        </li>
-        {% endfor %}
-        </ul>
-    {% else %}
-        <p>Nessun pacchetto attivo.</p>
-    {% endif %}
-</div>
+            </ul>
+        {% else %}
+            <p class="detail-empty-state">Nessun pacchetto attivo.</p>
+        {% endif %}
+    </div>
 
     <!-- CARD STORICO APPUNTAMENTI -->
     <div class="detail-card">
@@ -139,49 +149,49 @@
     </div>
 
     <!-- CARD APPUNTAMENTI FUTURI -->
-    <div class="detail-card">
+    <div class="detail-card detail-card-future">
         <h3>Appuntamenti Futuri</h3>
 
         {% if appuntamenti and appuntamenti|length > 0 %}
 
-            <ul class="app-list">
+            <ul class="app-list future-app-list">
                 {% for app in appuntamenti %}
-<li>
-    <strong>{{ app.data_formattata }}</strong>
-    - {{ app.servizio }}
+                <li class="future-app-item">
+                    <div class="future-app-header">
+                        <strong>{{ app.data_formattata }}</strong>
+                        <span>{{ app.servizio }}</span>
+                    </div>
 
-    <form method="POST" action="/update_stato" style="margin-top:5px;">
-        <input type="hidden" name="appuntamento_id" value="{{ app.id }}">
+                    <form method="POST" action="/update_stato" class="future-status-form">
+                        <input type="hidden" name="appuntamento_id" value="{{ app.id }}">
 
-        <select name="stato">
-            <option value="prenotato" {% if app.stato == "prenotato" %}selected{% endif %}>
-                Prenotato
-            </option>
-            <option value="completato" {% if app.stato == "completato" %}selected{% endif %}>
-                Completato
-            </option>
-            <option value="annullato" {% if app.stato == "annullato" %}selected{% endif %}>
-                Annullato
-            </option>
-        </select>
+                        <select name="stato" class="input-apple status-select">
+                            <option value="prenotato" {% if app.stato == "prenotato" %}selected{% endif %}>
+                                Prenotato
+                            </option>
+                            <option value="completato" {% if app.stato == "completato" %}selected{% endif %}>
+                                Completato
+                            </option>
+                            <option value="annullato" {% if app.stato == "annullato" %}selected{% endif %}>
+                                Annullato
+                            </option>
+                        </select>
 
-        <button type="submit">Salva</button>
-    </form>
-
-</li>
-{% endfor %}
+                        <button type="submit" class="btn-apple-primary future-save-btn">Salva</button>
+                    </form>
+                </li>
+                {% endfor %}
             </ul>
 
             <a href="/cliente/{{ cliente.id }}/promemoria"
-   target="_blank"
-   class="btn-primary"
-   style="margin-top:15px;">
-    🖨️ Genera PDF Promemoria
-</a>
+               target="_blank"
+               class="btn-primary btn-promemoria-pdf">
+                Genera PDF Promemoria
+            </a>
 
 
         {% else %}
-            <p style="color:#6b7280;">Nessun appuntamento futuro.</p>
+            <p class="detail-empty-state">Nessun appuntamento futuro.</p>
         {% endif %}
 
     </div>
@@ -194,10 +204,10 @@
         <span class="close" onclick="chiudiModificaCliente()">✖</span>
         <h3>Modifica Anagrafica</h3>
 
-        <input type="text" id="modNome" value="{{ cliente.nome }}" placeholder="Nome">
-        <input type="text" id="modCognome" value="{{ cliente.cognome }}" placeholder="Cognome">
-        <input type="text" id="modTelefono" value="{{ cliente.telefono }}" placeholder="Telefono">
-        <input type="email" id="modEmail" value="{{ cliente.email }}" placeholder="Email">
+        <input type="text" id="modNome" value="{{ cliente.nome or '' }}" placeholder="Nome">
+        <input type="text" id="modCognome" value="{{ cliente.cognome or '' }}" placeholder="Cognome">
+        <input type="text" id="modTelefono" value="{{ cliente.telefono or '' }}" placeholder="Telefono">
+        <input type="email" id="modEmail" value="{{ cliente.email or '' }}" placeholder="Email">
 
         <button class="btn-primary" onclick="salvaModificaCliente('{{ cliente.id }}')">
             Salva Modifiche
