@@ -1,8 +1,9 @@
 import os
-from flask import Flask, render_template, request, jsonify, redirect, send_file
+from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string
 from supabase import create_client
 from dotenv import load_dotenv
 from datetime import datetime
+from functools import wraps
 
 from io import BytesIO
 
@@ -29,22 +30,89 @@ app = Flask(
     static_folder=os.path.join(BASE_DIR, "static")
 )
 
+app.secret_key = os.getenv("SECRET_KEY", "super-secret-key-change-me")
+
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ===============================
+# LOGIN REQUIRED DECORATOR
+# ===============================
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("logged_in"):
+            return redirect("/login")
+        return f(*args, **kwargs)
+    return decorated_function
+
+# ===============================
 # HOME
 # ===============================
 
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 # ===============================
 # API CLIENTI
 # ===============================
+
+# ===============================
+# LOGIN
+# ===============================
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = request.form.get("email")
+        password = request.form.get("password")
+
+        if email == ADMIN_EMAIL and password == ADMIN_PASSWORD:
+            session["logged_in"] = True
+            return redirect("/")
+        else:
+            error = "Credenziali non valide"
+    else:
+        error = None
+
+    # Login page styled like gestionale (Apple minimal)
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset=\"UTF-8\">
+        <title>Login - Gestionale</title>
+        <link rel=\"stylesheet\" href=\"{{ url_for('static', filename='style.css') }}\">
+    </head>
+    <body style=\"display:flex;justify-content:center;align-items:center;height:100vh;background:linear-gradient(135deg,#f3f4f6,#e5e7eb);\">
+        <div class=\"detail-card\" style=\"width:380px;\">
+            <h3 style=\"margin-bottom:25px;\">Accesso Gestionale</h3>
+            <form method=\"POST\" style=\"display:flex;flex-direction:column;gap:16px;\">
+                <input type=\"email\" name=\"email\" placeholder=\"Email\" required class=\"input-apple\">
+                <input type=\"password\" name=\"password\" placeholder=\"Password\" required class=\"input-apple\">
+                <button type=\"submit\" class=\"btn-apple-primary\" style=\"width:100%;\">Accedi</button>
+            </form>
+            {% if error %}
+                <p style=\"color:#ef4444;margin-top:18px;font-size:14px;\">{{ error }}</p>
+            {% endif %}
+        </div>
+    </body>
+    </html>
+    """, error=error)
+
+@app.route("/logout")
+@login_required
+def logout():
+    session.clear()
+    return redirect("/login")
 
 @app.route("/api/clienti", methods=["GET"])
 def get_clienti():
@@ -318,6 +386,7 @@ def get_servizi():
 # ===============================
 
 @app.route("/clienti")
+@login_required
 def lista_clienti():
     response = supabase.table("clienti") \
         .select("*") \
@@ -331,6 +400,7 @@ def lista_clienti():
 # ===============================
 
 @app.route("/cliente/<cliente_id>")
+@login_required
 def dettaglio_cliente(cliente_id):
 
     cliente = supabase.table("clienti") \
