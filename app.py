@@ -629,38 +629,48 @@ def update_stato():
     appuntamento_id = request.form["appuntamento_id"]
     nuovo_stato = request.form["stato"]
 
+    # Leggo appuntamento PRIMA di modificare lo stato
+    appuntamento = supabase.table("appuntamenti") \
+        .select("*") \
+        .eq("id", appuntamento_id) \
+        .single() \
+        .execute()
+
+    if not appuntamento.data:
+        return redirect(request.referrer)
+
+    appo = appuntamento.data
+    stato_precedente = appo.get("stato")
+
     # Aggiorno stato
     supabase.table("appuntamenti").update({
         "stato": nuovo_stato
     }).eq("id", appuntamento_id).execute()
 
     # =========================
-    # SCALAGGIO AUTOMATICO
+    # SCALAGGIO SICURO
     # =========================
-    if nuovo_stato in ["completato", "svolto"]:
+    if (
+        stato_precedente not in ["completato", "svolto"]
+        and nuovo_stato in ["completato", "svolto"]
+        and appo.get("pacchetto_cliente_id")
+        and not appo.get("scalato")
+    ):
 
-        appuntamento = supabase.table("appuntamenti") \
+        pacchetto = supabase.table("pacchetti_cliente") \
             .select("*") \
-            .eq("id", appuntamento_id) \
+            .eq("id", appo["pacchetto_cliente_id"]) \
             .single() \
             .execute()
 
-        appo = appuntamento.data
-
-        if appo["pacchetto_cliente_id"] and not appo.get("scalato"):
-
-            pacchetto = supabase.table("pacchetti_cliente") \
-                .select("*") \
-                .eq("id", appo["pacchetto_cliente_id"]) \
-                .single() \
-                .execute()
-
+        if pacchetto.data:
             pac = pacchetto.data
 
             supabase.table("pacchetti_cliente").update({
                 "sedute_effettuate": pac["sedute_effettuate"] + 1
             }).eq("id", pac["id"]).execute()
 
+            # Segno appuntamento come già scalato
             supabase.table("appuntamenti").update({
                 "scalato": True
             }).eq("id", appuntamento_id).execute()
