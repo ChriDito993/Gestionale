@@ -800,3 +800,32 @@ function mostraToast(messaggio, tipo = "success") {
         setTimeout(() => toast.remove(), 300);
     }, 2500);
 }
+
+// =========================
+// Toggle Storico Appuntamenti
+// =========================
+
+function toggleStorico() {
+    const section = document.getElementById("storicoSection");
+    const btn = document.querySelector(".storico-toggle-btn");
+
+    if (!section || !btn) return;
+
+    const isCollapsed = section.classList.contains("storico-collapsed");
+
+    if (isCollapsed) {
+        section.classList.remove("storico-collapsed");
+        section.classList.remove("storico-fade");
+
+        // forza repaint per riattivare animazione
+        void section.offsetWidth;
+
+        section.classList.add("storico-fade");
+        btn.textContent = "Nascondi storico";
+    } else {
+        section.classList.remove("storico-fade");
+        section.classList.add("storico-collapsed");
+        btn.textContent = "Mostra storico";
+    }
+}
+

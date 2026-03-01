@@ -7,9 +7,8 @@ from functools import wraps
 
 from io import BytesIO
 
-import smtplib
-import ssl
-from email.message import EmailMessage
+
+import requests
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem
 from reportlab.lib.styles import getSampleStyleSheet
@@ -673,17 +672,18 @@ def chiudi_pacchetto(pacchetto_id):
 # INVIO PROMEMORIA EMAIL
 # ===============================
 
+
 @app.route("/invia_promemoria/<appuntamento_id>", methods=["GET"])
 def invia_promemoria(appuntamento_id):
 
-    EMAIL_USER = os.getenv("EMAIL_USER")
-    EMAIL_PASS = os.getenv("EMAIL_PASS")
+    RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 
     from flask import jsonify
-    if not EMAIL_USER or not EMAIL_PASS:
-        return jsonify({"status": "error", "message": "Credenziali email non configurate"}), 500
 
-    # Recupero appuntamento con servizio e clienti (tramite appuntamenti_clienti)
+    if not RESEND_API_KEY:
+        return jsonify({"status": "error", "message": "RESEND_API_KEY non configurata"}), 500
+
+    # Recupero appuntamento con servizio e clienti
     appo = supabase.table("appuntamenti") \
         .select("""
             *,
@@ -715,13 +715,6 @@ def invia_promemoria(appuntamento_id):
     ora_formattata = dt.strftime("%H:%M")
 
     servizio_nome = appo["servizi"]["nome"]
-
-    # Costruzione email
-    msg = EmailMessage()
-    msg["Subject"] = f"Promemoria Appuntamento – {servizio_nome}"
-    msg["From"] = EMAIL_USER
-    msg["To"] = cliente["email"]
-
     numero_seduta = appo.get("numero_seduta")
 
     info_seduta = ""
@@ -743,18 +736,32 @@ MASSOTERAPIA & PT
 Christian Di Tommaso
 """
 
-    msg.set_content(corpo)
-
     try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-            server.login(EMAIL_USER, EMAIL_PASS)
-            server.send_message(msg)
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "from": "Gestionale <onboarding@resend.dev>",
+                "to": [cliente["email"]],
+                "subject": f"Promemoria Appuntamento – {servizio_nome}",
+                "text": corpo
+            },
+            timeout=10
+        )
 
-        return jsonify({"status": "success"})
+        if response.status_code in [200, 201]:
+            return jsonify({"status": "success"})
+        else:
+            return jsonify({
+                "status": "error",
+                "message": response.text
+            }), 500
 
     except Exception as e:
-        print("Errore invio email:", e)
+        print("Errore invio email Resend:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 

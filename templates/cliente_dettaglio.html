@@ -118,82 +118,100 @@
         {% endif %}
     </div>
 
-    <!-- CARD STORICO APPUNTAMENTI -->
+    <!-- ========================= -->
+    <!-- APPUNTAMENTI FUTURI -->
+    <!-- ========================= -->
     <div class="detail-card">
-        <h3>Storico Appuntamenti</h3>
-
-        {% if storico_appuntamenti and storico_appuntamenti|length > 0 %}
-            <ul class="app-list">
-                {% for app in storico_appuntamenti %}
-                <li style="margin-bottom:12px;">
-                    <strong>{{ app.data_formattata }}</strong>
-                    — {{ app.servizio }}
-
-                    {% if app.numero_seduta %}
-                        (Seduta {{ app.numero_seduta }})
-                    {% endif %}
-
-                    {% if app.stato == 'completato' %}
-                        <span style="color:#16a34a;font-weight:600;"> • Completato</span>
-                    {% elif app.stato == 'prenotato' %}
-                        <span style="color:#eab308;font-weight:600;"> • Prenotato</span>
-                    {% elif app.stato == 'annullato' %}
-                        <span style="color:#dc2626;font-weight:600;"> • Annullato</span>
-                    {% endif %}
-                </li>
-                {% endfor %}
-            </ul>
-        {% else %}
-            <p style="color:#6b7280;">Nessuno storico disponibile.</p>
-        {% endif %}
-    </div>
-
-    <!-- CARD APPUNTAMENTI FUTURI -->
-    <div class="detail-card detail-card-future">
         <h3>Appuntamenti Futuri</h3>
 
         {% if appuntamenti and appuntamenti|length > 0 %}
-
-            <ul class="app-list future-app-list">
+            <div class="cliente-app-section">
                 {% for app in appuntamenti %}
-                <li class="future-app-item">
-                    <div class="future-app-header">
-                        <strong>{{ app.data_formattata }}</strong>
-                        <span>{{ app.servizio }}</span>
+                <div class="cliente-app-card future">
+                    <div class="cliente-app-info">
+                        <div class="cliente-app-date">{{ app.data_formattata }}</div>
+                        <div class="cliente-app-service">
+                            {{ app.servizio }}
+                        </div>
                     </div>
 
-                    <form method="POST" action="/update_stato" class="future-status-form">
+                    <form method="POST" action="/update_stato" class="cliente-app-actions">
                         <input type="hidden" name="appuntamento_id" value="{{ app.id }}">
 
                         <select name="stato" class="input-apple status-select">
-                            <option value="prenotato" {% if app.stato == "prenotato" %}selected{% endif %}>
-                                Prenotato
-                            </option>
-                            <option value="completato" {% if app.stato == "completato" %}selected{% endif %}>
-                                Completato
-                            </option>
-                            <option value="annullato" {% if app.stato == "annullato" %}selected{% endif %}>
-                                Annullato
-                            </option>
+                            <option value="prenotato" {% if app.stato == "prenotato" %}selected{% endif %}>Prenotato</option>
+                            <option value="completato" {% if app.stato == "completato" %}selected{% endif %}>Completato</option>
+                            <option value="annullato" {% if app.stato == "annullato" %}selected{% endif %}>Annullato</option>
                         </select>
 
-                        <button type="submit" class="btn-apple-primary future-save-btn">Salva</button>
+                        <button type="submit" class="btn-apple-primary btn-small">Salva</button>
                     </form>
-                </li>
+                </div>
                 {% endfor %}
-            </ul>
+            </div>
 
             <a href="/cliente/{{ cliente.id }}/promemoria"
                target="_blank"
-               class="btn-primary btn-promemoria-pdf">
+               class="btn-primary" style="margin-top:20px; display:inline-block;">
                 Genera PDF Promemoria
             </a>
-
 
         {% else %}
             <p class="detail-empty-state">Nessun appuntamento futuro.</p>
         {% endif %}
+    </div>
 
+
+    <!-- ========================= -->
+    <!-- APPUNTAMENTI PASSATI -->
+    <!-- ========================= -->
+    <div class="detail-card">
+        <div class="storico-toggle-wrapper">
+            <h3>Storico Appuntamenti</h3>
+            <button type="button"
+                    class="storico-toggle-btn"
+                    onclick="toggleStorico()">
+                Mostra storico
+            </button>
+        </div>
+
+        {% if storico_appuntamenti and storico_appuntamenti|length > 0 %}
+            <div id="storicoSection" class="cliente-app-section storico-collapsed">
+                {% for app in storico_appuntamenti %}
+                <div class="cliente-app-card past">
+                    <div class="cliente-app-info">
+                        <div class="cliente-app-date">
+                            {{ app.data_formattata }}
+                        </div>
+
+                        <div class="cliente-app-service">
+                            {{ app.servizio }}
+
+                            {% if app.numero_seduta %}
+                                <span class="seduta-badge">
+                                    Seduta {{ app.numero_seduta }}
+                                </span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <form method="POST" action="/update_stato" class="cliente-app-actions">
+                        <input type="hidden" name="appuntamento_id" value="{{ app.id }}">
+
+                        <select name="stato" class="input-apple status-select">
+                            <option value="prenotato" {% if app.stato == "prenotato" %}selected{% endif %}>Prenotato</option>
+                            <option value="completato" {% if app.stato == "completato" %}selected{% endif %}>Completato</option>
+                            <option value="annullato" {% if app.stato == "annullato" %}selected{% endif %}>Annullato</option>
+                        </select>
+
+                        <button type="submit" class="btn-apple-primary btn-small">Salva</button>
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="detail-empty-state">Nessuno storico disponibile.</p>
+        {% endif %}
     </div>
 
 </div>
@@ -239,6 +257,22 @@ function salvaModificaCliente(clienteId) {
     .then(() => {
         location.reload();
     });
+}
+
+function toggleStorico() {
+    const section = document.getElementById("storicoSection");
+    const btn = document.querySelector(".storico-toggle-btn");
+
+    if (!section) return;
+
+    if (section.classList.contains("storico-collapsed")) {
+        section.classList.remove("storico-collapsed");
+        section.classList.add("storico-fade");
+        btn.textContent = "Nascondi storico";
+    } else {
+        section.classList.add("storico-collapsed");
+        btn.textContent = "Mostra storico";
+    }
 }
 </script>
 
