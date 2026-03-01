@@ -114,12 +114,14 @@ def logout():
     return redirect("/login")
 
 @app.route("/api/clienti", methods=["GET"])
+@login_required
 def get_clienti():
     response = supabase.table("clienti").select("*").execute()
     return jsonify(response.data)
 
 
 @app.route("/api/clienti", methods=["POST"])
+@login_required
 def crea_cliente():
     data = request.json
     response = supabase.table("clienti").insert(data).execute()
@@ -127,6 +129,7 @@ def crea_cliente():
 
 # PUT route per aggiornare dati anagrafici di un cliente
 @app.route("/api/clienti/<cliente_id>", methods=["PUT"])
+@login_required
 def aggiorna_cliente(cliente_id):
     data = request.json
 
@@ -153,6 +156,7 @@ def aggiorna_cliente(cliente_id):
 # ===============================
 
 @app.route("/api/appuntamenti", methods=["GET"])
+@login_required
 def get_appuntamenti():
 
     start = request.args.get("start")
@@ -234,6 +238,7 @@ def get_appuntamenti():
     return jsonify(eventi)
 
 @app.route("/api/appuntamenti", methods=["POST"])
+@login_required
 def crea_appuntamento():
 
     data = request.json
@@ -325,6 +330,7 @@ def crea_appuntamento():
         return jsonify({"error": "Errore creazione appuntamento"}), 500
 
 @app.route("/api/appuntamenti/<id>", methods=["PUT"])
+@login_required
 def aggiorna_appuntamento(id):
     data = request.json
     response = supabase.table("appuntamenti") \
@@ -334,6 +340,7 @@ def aggiorna_appuntamento(id):
     return jsonify(response.data)
 
 @app.route("/api/appuntamenti/<id>", methods=["DELETE"])
+@login_required
 def elimina_appuntamento(id):
     supabase.table("appuntamenti") \
         .delete() \
@@ -347,6 +354,7 @@ def elimina_appuntamento(id):
 # ===============================
 
 @app.route("/api/pacchetti_attivi/<cliente_id>", methods=["GET"])
+@login_required
 def get_pacchetti_attivi(cliente_id):
 
     pacchetti = supabase.table("pacchetti_cliente") \
@@ -376,6 +384,7 @@ def get_pacchetti_attivi(cliente_id):
 # ===============================
 
 @app.route("/api/servizi", methods=["GET"])
+@login_required
 def get_servizi():
     response = supabase.table("servizi").select("*").execute()
     return jsonify(response.data)
@@ -514,6 +523,7 @@ def dettaglio_cliente(cliente_id):
 # ===============================
 
 @app.route("/assegna_pacchetto", methods=["POST"])
+@login_required
 def assegna_pacchetto():
 
     cliente_id = request.form["cliente_id"]
@@ -534,6 +544,7 @@ def assegna_pacchetto():
 # ===============================
 
 @app.route("/cliente/<cliente_id>/note", methods=["POST"])
+@login_required
 def aggiorna_note(cliente_id):
 
     note = request.form.get("note_cliniche")
@@ -612,6 +623,7 @@ def genera_promemoria(cliente_id):
     )
 
 @app.route("/update_stato", methods=["POST"])
+@login_required
 def update_stato():
 
     appuntamento_id = request.form["appuntamento_id"]
@@ -656,6 +668,7 @@ def update_stato():
     return redirect(request.referrer)
 
 @app.route("/chiudi_pacchetto/<pacchetto_id>", methods=["POST"])
+@login_required
 def chiudi_pacchetto(pacchetto_id):
 
     supabase.table("pacchetti_cliente") \
@@ -674,6 +687,7 @@ def chiudi_pacchetto(pacchetto_id):
 
 
 @app.route("/invia_promemoria/<appuntamento_id>", methods=["GET"])
+@login_required
 def invia_promemoria(appuntamento_id):
 
     RESEND_API_KEY = os.getenv("RESEND_API_KEY")
