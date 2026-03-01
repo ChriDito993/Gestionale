@@ -158,6 +158,56 @@ buttonText: {
     caricaServizi();
 
     // ===============================
+    // MODAL PACCHETTI ATTIVI
+    // ===============================
+
+    const openPacchettiBtn = document.getElementById("openPacchettiAttivi");
+    const pacchettiModal = document.getElementById("pacchettiModal");
+    const closePacchettiModal = document.getElementById("closePacchettiModal");
+    const pacchettiList = document.getElementById("pacchettiAttiviList");
+
+    if (openPacchettiBtn && pacchettiModal) {
+        openPacchettiBtn.addEventListener("click", function() {
+
+            pacchettiModal.style.display = "block";
+
+            fetch("/api/pacchetti_dashboard")
+                .then(res => res.json())
+                .then(data => {
+
+                    pacchettiList.innerHTML = "";
+
+                    if (!data.length) {
+                        pacchettiList.innerHTML = "<div style='opacity:0.6;'>Nessun pacchetto attivo</div>";
+                        return;
+                    }
+
+                    data.forEach(pac => {
+                        const card = document.createElement("div");
+                        card.className = "detail-card";
+                        card.style.padding = "16px";
+                        card.innerHTML = `
+                            <div style="font-weight:600; font-size:15px;">${pac.cliente}</div>
+                            <div style="margin-top:4px; font-size:13px; opacity:0.7;">
+                                ${pac.nome_pacchetto}
+                            </div>
+                            <div style="margin-top:8px; font-size:13px;">
+                                Sedute rimanenti: <strong>${pac.sedute_rimanenti}</strong>
+                            </div>
+                        `;
+                        pacchettiList.appendChild(card);
+                    });
+                });
+        });
+    }
+
+    if (closePacchettiModal && pacchettiModal) {
+        closePacchettiModal.addEventListener("click", function() {
+            pacchettiModal.style.display = "none";
+        });
+    }
+
+    // ===============================
     // OTTIMIZZAZIONE MOBILE iPHONE
     // ===============================
     if (window.innerWidth < 768) {
@@ -286,7 +336,6 @@ function salvaEvento() {
             pacchetto_cliente_id: pacchettoId,
             start_datetime: selectedStart,
             end_datetime: selectedEnd,
-            stato: "prenotato",
             note: "",
             durata_minuti: Math.round((new Date(selectedEnd) - new Date(selectedStart)) / 60000)
         })
@@ -435,8 +484,6 @@ function apriModificaModal() {
     document.getElementById("oraInizioModifica").value = oraInizio;
     document.getElementById("oraFineModifica").value = oraFine;
 
-    document.getElementById("statoSelect").value =
-        extended.stato || "prenotato";
 
     const modal = document.getElementById("modificaModal");
     if (!modal) return;
@@ -499,6 +546,7 @@ window.addEventListener("click", function(event) {
     const eventoModal = document.getElementById("eventoModal");
     const clienteModal = document.getElementById("clienteModal");
     const modificaModal = document.getElementById("modificaModal");
+    const pacchettiModal = document.getElementById("pacchettiModal");
 
     if (eventoModal && event.target === eventoModal) {
         chiudiModal();
@@ -510,6 +558,10 @@ window.addEventListener("click", function(event) {
 
     if (modificaModal && event.target === modificaModal) {
         chiudiModificaModal();
+    }
+
+    if (pacchettiModal && event.target === pacchettiModal) {
+        pacchettiModal.style.display = "none";
     }
 });
 
@@ -539,7 +591,6 @@ function salvaModifiche() {
     const data = document.getElementById("dataModifica").value;
     const oraInizio = document.getElementById("oraInizioModifica").value;
     const oraFine = document.getElementById("oraFineModifica").value;
-    const stato = document.getElementById("statoSelect").value;
 
     const start_datetime = data + "T" + oraInizio + ":00";
     const end_datetime = data + "T" + oraFine + ":00";
@@ -549,8 +600,7 @@ function salvaModifiche() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             start_datetime: start_datetime,
-            end_datetime: end_datetime,
-            stato: stato
+            end_datetime: end_datetime
         })
     }).then(() => {
         chiudiModificaModal();

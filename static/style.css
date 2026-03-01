@@ -146,6 +146,56 @@ html, button, input, select, textarea {
 }
 
 /* ========================= */
+/* DASHBOARD MINI – APPLE */
+/* ========================= */
+
+.dashboard-mini {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 22px;
+    margin-bottom: 28px;
+}
+
+.dashboard-card {
+    background: rgba(255,255,255,0.75);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(17,24,39,0.06);
+    border-radius: 22px;
+    padding: 24px 26px;
+    box-shadow: 0 20px 45px rgba(15,23,42,0.08);
+    transition: all 0.25s ease;
+}
+
+.dashboard-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 28px 60px rgba(15,23,42,0.14);
+}
+
+.dashboard-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #6b7280;
+    display: block;
+    margin-bottom: 10px;
+}
+
+.dashboard-value {
+    font-size: 34px;
+    font-weight: 700;
+    color: #111827;
+    letter-spacing: 0.5px;
+}
+
+@media (max-width: 900px) {
+    .dashboard-value {
+        font-size: 28px;
+    }
+}
+
+/* ========================= */
 /* CALENDARIO CARD */
 /* ========================= */
 

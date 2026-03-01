@@ -58,7 +58,27 @@ def login_required(f):
 @app.route("/")
 @login_required
 def index():
-    return render_template("index.html")
+
+    # Conteggio pacchetti attivi
+    pacchetti_attivi = supabase.table("pacchetti_cliente") \
+        .select("id", count="exact") \
+        .eq("stato", "attivo") \
+        .execute()
+
+    totale_pacchetti_attivi = pacchetti_attivi.count if pacchetti_attivi.count else 0
+
+    # Conteggio clienti totali
+    clienti_totali = supabase.table("clienti") \
+        .select("id", count="exact") \
+        .execute()
+
+    totale_clienti = clienti_totali.count if clienti_totali.count else 0
+
+    return render_template(
+        "index.html",
+        dashboard_pacchetti=totale_pacchetti_attivi,
+        dashboard_clienti=totale_clienti
+    )
 
 # ===============================
 # API CLIENTI
@@ -227,7 +247,6 @@ def get_appuntamenti():
     "end": appo["end_datetime"],
     "backgroundColor": colore,
     "extendedProps": {
-        "stato": appo.get("stato"),
         "clienti": nomi_clienti,
         "clienti_ids": clienti_ids,
         "servizio": nome_servizio,
@@ -304,11 +323,42 @@ def crea_appuntamento():
         "end_datetime": data["end_datetime"],
         "pacchetto_cliente_id": pacchetto_id,
         "numero_seduta": numero_seduta,
-        "stato": "prenotato",
-        "scalato": False
+        "scalato": bool(pacchetto_id)
     }).execute()
 
     appuntamento_id = nuovo_appuntamento.data[0]["id"]
+
+    # =========================
+    # SCALA SEDUTA SUBITO
+    # =========================
+    if pacchetto_id:
+        pacchetto = supabase.table("pacchetti_cliente") \
+            .select("sedute_effettuate") \
+            .eq("id", pacchetto_id) \
+            .single() \
+            .execute()
+
+        if pacchetto.data:
+            nuove_effettuate = pacchetto.data["sedute_effettuate"] + 1
+
+            # Recupero numero totale sedute
+            tipo = supabase.table("pacchetti_cliente") \
+                .select("tipi_pacchetto(numero_sedute)") \
+                .eq("id", pacchetto_id) \
+                .single() \
+                .execute().data
+
+            numero_totale = tipo["tipi_pacchetto"]["numero_sedute"]
+
+            # Se raggiunge il totale → chiudi automaticamente
+            nuovo_stato = "attivo"
+            if nuove_effettuate >= numero_totale:
+                nuovo_stato = "chiuso"
+
+            supabase.table("pacchetti_cliente").update({
+                "sedute_effettuate": nuove_effettuate,
+                "stato": nuovo_stato
+            }).eq("id", pacchetto_id).execute()
 
     # 🔹 Inserimento clienti nella tabella ponte
     for cliente_id in clienti_ids:
@@ -342,10 +392,34 @@ def aggiorna_appuntamento(id):
 @app.route("/api/appuntamenti/<id>", methods=["DELETE"])
 @login_required
 def elimina_appuntamento(id):
+
+    # Recupero appuntamento prima di eliminarlo
+    appo = supabase.table("appuntamenti") \
+        .select("pacchetto_cliente_id, scalato") \
+        .eq("id", id) \
+        .single() \
+        .execute().data
+
+    if appo and appo.get("pacchetto_cliente_id") and appo.get("scalato"):
+        pacchetto_id = appo["pacchetto_cliente_id"]
+
+        pacchetto = supabase.table("pacchetti_cliente") \
+            .select("sedute_effettuate") \
+            .eq("id", pacchetto_id) \
+            .single() \
+            .execute()
+
+        if pacchetto.data and pacchetto.data["sedute_effettuate"] > 0:
+            supabase.table("pacchetti_cliente").update({
+                "sedute_effettuate": pacchetto.data["sedute_effettuate"] - 1
+            }).eq("id", pacchetto_id).execute()
+
+    # Elimino appuntamento
     supabase.table("appuntamenti") \
         .delete() \
         .eq("id", id) \
         .execute()
+
     return jsonify({"success": True})
 
 
@@ -374,6 +448,40 @@ def get_pacchetti_attivi(cliente_id):
             "id": pac["id"],
             "nome": pac["tipi_pacchetto"]["nome"],
             "servizio_id": pac["tipi_pacchetto"]["servizio_id"],
+            "sedute_rimanenti": rimanenti
+        })
+
+    return jsonify(risultati)
+
+# ===============================
+# API DASHBOARD PACCHETTI ATTIVI
+# ===============================
+
+@app.route("/api/pacchetti_dashboard", methods=["GET"])
+@login_required
+def pacchetti_dashboard():
+
+    pacchetti = supabase.table("pacchetti_cliente") \
+        .select("*, clienti(nome,cognome), tipi_pacchetto(nome, numero_sedute)") \
+        .eq("stato", "attivo") \
+        .execute().data
+
+    risultati = []
+
+    for pac in pacchetti:
+        numero_totale = pac["tipi_pacchetto"]["numero_sedute"]
+        effettuate = pac["sedute_effettuate"]
+        rimanenti = numero_totale - effettuate
+
+        cliente = pac.get("clienti")
+        nome_cliente = ""
+        if cliente:
+            nome_cliente = f"{cliente['nome']} {cliente['cognome']}"
+
+        risultati.append({
+            "id": pac["id"],
+            "cliente": nome_cliente,
+            "nome_pacchetto": pac["tipi_pacchetto"]["nome"],
             "sedute_rimanenti": rimanenti
         })
 
@@ -480,12 +588,11 @@ def dettaglio_cliente(cliente_id):
             "id": appo["id"],
             "data_formattata": data_formattata,
             "servizio": appo["servizi"]["nome"],
-            "stato": appo.get("stato"),
             "numero_seduta": appo.get("numero_seduta")
         })
 
-        # Calcolo totale sedute completate
-        if appo.get("stato") in ["completato", "svolto"]:
+        # Calcolo totale sedute (basato su numero_seduta)
+        if appo.get("numero_seduta"):
             totale_sedute += 1
 
         # Ultima visita (passata più recente)
@@ -625,56 +732,6 @@ def genera_promemoria(cliente_id):
 @app.route("/update_stato", methods=["POST"])
 @login_required
 def update_stato():
-
-    appuntamento_id = request.form["appuntamento_id"]
-    nuovo_stato = request.form["stato"]
-
-    # Leggo appuntamento PRIMA di modificare lo stato
-    appuntamento = supabase.table("appuntamenti") \
-        .select("*") \
-        .eq("id", appuntamento_id) \
-        .single() \
-        .execute()
-
-    if not appuntamento.data:
-        return redirect(request.referrer)
-
-    appo = appuntamento.data
-    stato_precedente = appo.get("stato")
-
-    # Aggiorno stato
-    supabase.table("appuntamenti").update({
-        "stato": nuovo_stato
-    }).eq("id", appuntamento_id).execute()
-
-    # =========================
-    # SCALAGGIO SICURO
-    # =========================
-    if (
-        stato_precedente not in ["completato", "svolto"]
-        and nuovo_stato in ["completato", "svolto"]
-        and appo.get("pacchetto_cliente_id")
-        and not appo.get("scalato")
-    ):
-
-        pacchetto = supabase.table("pacchetti_cliente") \
-            .select("*") \
-            .eq("id", appo["pacchetto_cliente_id"]) \
-            .single() \
-            .execute()
-
-        if pacchetto.data:
-            pac = pacchetto.data
-
-            supabase.table("pacchetti_cliente").update({
-                "sedute_effettuate": pac["sedute_effettuate"] + 1
-            }).eq("id", pac["id"]).execute()
-
-            # Segno appuntamento come già scalato
-            supabase.table("appuntamenti").update({
-                "scalato": True
-            }).eq("id", appuntamento_id).execute()
-
     return redirect(request.referrer)
 
 @app.route("/chiudi_pacchetto/<pacchetto_id>", methods=["POST"])

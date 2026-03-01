@@ -38,6 +38,18 @@
 
     </header>
 
+    <!-- DASHBOARD MINI -->
+    <div class="dashboard-mini">
+        <div class="dashboard-card" id="openPacchettiAttivi" style="cursor:pointer;">
+            <span class="dashboard-label">Pacchetti Attivi</span>
+            <span class="dashboard-value">{{ dashboard_pacchetti }}</span>
+        </div>
+        <div class="dashboard-card">
+            <span class="dashboard-label">Clienti Totali</span>
+            <span class="dashboard-value">{{ dashboard_clienti }}</span>
+        </div>
+    </div>
+
     <!-- CALENDARIO -->
     <div class="calendar-wrapper">
         <div id="calendar"></div>
@@ -107,13 +119,6 @@
         <label>Ora Fine</label>
         <input type="time" id="oraFineModifica" class="input-apple">
 
-        <label>Stato</label>
-        <select id="statoSelect" class="input-apple">
-            <option value="prenotato">Prenotato</option>
-            <option value="svolto">Svolto</option>
-            <option value="annullato">Annullato</option>
-            <option value="no_show">No Show</option>
-        </select>
 
         <div class="modal-footer modal-footer-vertical">
             <button type="button" class="btn-promemoria" onclick="inviaPromemoria()">Invia Promemoria</button>
@@ -124,6 +129,16 @@
 </div>
 
 
+<!-- MODAL PACCHETTI ATTIVI -->
+<div id="pacchettiModal" class="modal">
+    <div class="modal-content modal-card-premium">
+        <span class="close" id="closePacchettiModal">✖</span>
+        <h3 class="modal-title-premium modal-title-bar-premium">
+            Pacchetti Attivi
+        </h3>
+        <div id="pacchettiAttiviList" style="display:grid; gap:14px; margin-top:20px;"></div>
+    </div>
+</div>
 <script src="/static/main.js"></script>
 
 
