@@ -127,26 +127,15 @@
         {% if appuntamenti and appuntamenti|length > 0 %}
             <div class="cliente-app-section">
                 {% for app in appuntamenti %}
-                <div class="cliente-app-card future">
+                <a href="/?open_event={{ app.id }}" class="cliente-app-card future" style="text-decoration:none; color:inherit;">
                     <div class="cliente-app-info">
                         <div class="cliente-app-date">{{ app.data_formattata }}</div>
                         <div class="cliente-app-service">
                             {{ app.servizio }}
                         </div>
                     </div>
-
-                    <form method="POST" action="/update_stato" class="cliente-app-actions">
-                        <input type="hidden" name="appuntamento_id" value="{{ app.id }}">
-
-                        <select name="stato" class="input-apple status-select">
-                            <option value="prenotato" {% if app.stato == "prenotato" %}selected{% endif %}>Prenotato</option>
-                            <option value="completato" {% if app.stato == "completato" %}selected{% endif %}>Completato</option>
-                            <option value="annullato" {% if app.stato == "annullato" %}selected{% endif %}>Annullato</option>
-                        </select>
-
-                        <button type="submit" class="btn-apple-primary btn-small">Salva</button>
-                    </form>
-                </div>
+                    <div class="cliente-app-actions"></div>
+                </a>
                 {% endfor %}
             </div>
 
@@ -178,7 +167,7 @@
         {% if storico_appuntamenti and storico_appuntamenti|length > 0 %}
             <div id="storicoSection" class="cliente-app-section storico-collapsed">
                 {% for app in storico_appuntamenti %}
-                <div class="cliente-app-card past">
+                <a href="/?open_event={{ app.id }}" class="cliente-app-card past" style="text-decoration:none; color:inherit;">
                     <div class="cliente-app-info">
                         <div class="cliente-app-date">
                             {{ app.data_formattata }}
@@ -206,7 +195,7 @@
 
                         <button type="submit" class="btn-apple-primary btn-small">Salva</button>
                     </form>
-                </div>
+                </a>
                 {% endfor %}
             </div>
         {% else %}

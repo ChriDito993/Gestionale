@@ -154,6 +154,28 @@ buttonText: {
 
     calendar.render();
 
+    // ===============================
+    // AUTO OPEN EVENT FROM URL (?open_event=ID)
+    // ===============================
+
+    const params = new URLSearchParams(window.location.search);
+    const openEventId = params.get("open_event");
+
+    if (openEventId) {
+        calendar.on('eventsSet', function() {
+            const eventToOpen = calendar.getEventById(openEventId);
+
+            if (eventToOpen) {
+                window.eventoSelezionato = eventToOpen;
+                apriModificaModal();
+
+                // Pulisce URL per evitare riapertura al refresh
+                const cleanUrl = window.location.origin + window.location.pathname;
+                window.history.replaceState({}, document.title, cleanUrl);
+            }
+        });
+    }
+
     caricaClienti(); // ora carica array per ricerca
     caricaServizi();
 
