@@ -512,10 +512,9 @@ function apriModificaModal() {
     modal.style.display = "block";   // assicura visibilità
     modal.classList.add("modal-active");
 
-    // 🎯 Restyle bottone elimina PREMIUM (rotondo con icona cestino bianca)
-    const bottoniModifica = modal.querySelectorAll("button");
-    if (bottoniModifica.length >= 3) {
-        const deleteBtn = bottoniModifica[2];
+    // 🎯 Restyle bottone elimina PREMIUM (selezione sicura per classe)
+    const deleteBtn = modal.querySelector(".btn-danger");
+    if (deleteBtn) {
 
         deleteBtn.innerHTML = `
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="white" viewBox="0 0 24 24">
@@ -681,6 +680,53 @@ function inviaPromemoria() {
 }
 
 
+function inviaPromemoriaWhatsApp() {
+    mostraToast("Promemoria WhatsApp (UI pronta)", "success");
+    autoClosePromemoria();
+}
+
+function inviaPromemoriaMail() {
+    mostraToast("Promemoria Email (UI pronta)", "success");
+    autoClosePromemoria();
+}
+
+function inviaPromemoriaSMS() {
+    mostraToast("Promemoria SMS (UI pronta)", "success");
+    autoClosePromemoria();
+}
+
+function togglePromemoriaOptions() {
+
+    const options = document.getElementById("promemoriaOptions");
+    const mainBtn = document.getElementById("btnPromemoriaMain");
+
+    if (!options || !mainBtn) return;
+
+    const isHidden = options.classList.contains("promemoria-hidden");
+
+    if (isHidden) {
+        options.classList.remove("promemoria-hidden");
+        options.classList.add("promemoria-visible");
+        mainBtn.textContent = "Chiudi";
+    } else {
+        options.classList.remove("promemoria-visible");
+        options.classList.add("promemoria-hidden");
+        mainBtn.textContent = "Invia Promemoria";
+    }
+}
+
+function autoClosePromemoria() {
+    const options = document.getElementById("promemoriaOptions");
+    const mainBtn = document.getElementById("btnPromemoriaMain");
+
+    if (!options || !mainBtn) return;
+
+    options.classList.remove("promemoria-visible");
+    options.classList.add("promemoria-hidden");
+    mainBtn.textContent = "Invia Promemoria";
+}
+
+
 /* ===============================
    CLIENTI
 =================================*/
@@ -833,12 +879,6 @@ function mostraToast(messaggio, tipo = "success") {
     const modal = document.getElementById("modificaModal");
     if (!modal) return;
 
-    // Prende il bottone "Invia Promemoria" (primo bottone nella modale)
-    const bottoni = modal.querySelectorAll("button");
-    if (!bottoni.length) return;
-
-    const bottone = bottoni[0];
-
     // Rimuove eventuale toast precedente
     const vecchio = modal.querySelector(".toast-inline");
     if (vecchio) vecchio.remove();
@@ -856,7 +896,12 @@ function mostraToast(messaggio, tipo = "success") {
         <div class="toast-progress"></div>
     `;
 
-    bottone.insertAdjacentElement("afterend", toast);
+    const promemoriaContainer = modal.querySelector(".promemoria-split");
+    if (promemoriaContainer) {
+        promemoriaContainer.insertAdjacentElement("afterend", toast);
+    } else {
+        modal.querySelector(".modal-footer").prepend(toast);
+    }
 
     // Trigger animazione
     requestAnimationFrame(() => {

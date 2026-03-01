@@ -904,12 +904,83 @@ select {
     font-size: 14px;
     cursor: pointer;
     box-shadow: 0 12px 30px rgba(42,157,143,0.35);
-    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.25s cubic-bezier(.4,0,.2,1);
 }
 
 #modificaModal .btn-promemoria:hover {
     transform: translateY(-1px);
     box-shadow: 0 18px 40px rgba(42,157,143,0.45);
+}
+
+/* ========================= */
+/* PROMEMORIA SPLIT BUTTONS */
+/* ========================= */
+
+#modificaModal .promemoria-split {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 6px;
+}
+
+#modificaModal .promemoria-hidden {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transform: translateY(-10px) scale(0.95);
+    transition: all 0.35s cubic-bezier(.4,0,.2,1);
+}
+
+#modificaModal .promemoria-visible {
+    max-height: 120px;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    margin-top: 12px;
+}
+
+#modificaModal .btn-promemoria-round {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, #2a9d8f, #21867a);
+    color: #ffffff;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 14px 32px rgba(42,157,143,0.35);
+    transition: all 0.25s cubic-bezier(.4,0,.2,1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#modificaModal .btn-promemoria-round:hover {
+    transform: translateY(-3px) scale(1.08);
+    box-shadow: 0 20px 45px rgba(42,157,143,0.45);
+}
+
+#modificaModal .btn-promemoria-round:active {
+    transform: scale(0.96);
+}
+
+#modificaModal .btn-whatsapp {
+    background: #25D366; /* colore ufficiale WhatsApp */
+}
+
+#modificaModal .btn-mail {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8); /* blu elegante */
+    box-shadow: 0 14px 32px rgba(37,99,235,0.35);
+}
+
+#modificaModal .btn-sms {
+    background: linear-gradient(135deg, #9ca3af, #6b7280); /* grigio soft */
+    box-shadow: 0 14px 32px rgba(107,114,128,0.35);
+}
+
+#modificaModal .btn-whatsapp svg {
+    display: block;
 }
 
 /* ========================= */
