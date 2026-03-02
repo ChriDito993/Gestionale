@@ -171,6 +171,21 @@ def aggiorna_cliente(cliente_id):
 
     return jsonify(response.data)
 
+# GET route per recuperare singolo cliente (usato per WhatsApp reminder)
+@app.route("/api/clienti/<cliente_id>", methods=["GET"])
+@login_required
+def get_cliente_singolo(cliente_id):
+    response = supabase.table("clienti") \
+        .select("id, nome, cognome, telefono, email") \
+        .eq("id", cliente_id) \
+        .single() \
+        .execute()
+
+    if not response.data:
+        return jsonify({"error": "Cliente non trovato"}), 404
+
+    return jsonify(response.data)
+
 # ===============================
 # API APPUNTAMENTI
 # ===============================

@@ -735,8 +735,63 @@ function inviaPromemoria() {
 
 
 function inviaPromemoriaWhatsApp() {
-    mostraToast("Promemoria WhatsApp (UI pronta)", "success");
-    autoClosePromemoria();
+
+    if (!window.eventoSelezionato) {
+        mostraToast("Nessun appuntamento selezionato", "error");
+        return;
+    }
+
+    const extended = window.eventoSelezionato._def?.extendedProps || {};
+    const clientiIds = extended.clienti_ids || [];
+    const servizio = extended.servizio || "trattamento";
+
+    if (!clientiIds.length) {
+        mostraToast("Cliente non disponibile", "error");
+        return;
+    }
+
+    const clienteId = clientiIds[0];
+
+    fetch('/api/clienti/' + clienteId)
+        .then(res => {
+            if (!res.ok) throw new Error("Errore recupero numero");
+            return res.json();
+        })
+        .then(cliente => {
+
+            if (!cliente.telefono) {
+                mostraToast("Numero non disponibile", "error");
+                return;
+            }
+
+            // 🔧 Normalizzazione numero (solo cifre)
+            let numero = cliente.telefono
+                .replace(/\s+/g, '')
+                .replace(/-/g, '')
+                .replace(/[^\d]/g, '');
+
+            // Se numero italiano senza prefisso → aggiunge 39
+            if (numero.length === 10 && numero.startsWith("3")) {
+                numero = "39" + numero;
+            }
+
+            const start = window.eventoSelezionato.start;
+            const data = start.toLocaleDateString('it-IT');
+            const ora = start.toTimeString().slice(0,5);
+
+            const messaggio = `Ciao ${cliente.nome}, ti ricordo l'appuntamento di ${servizio} il ${data} alle ${ora}. A presto!`;
+
+            const url = `https://wa.me/${numero}?text=${encodeURIComponent(messaggio)}`;
+
+            // 🔥 Apertura diretta (evita blocco popup)
+            window.location.href = url;
+
+            mostraToast("Apertura WhatsApp...", "success");
+            autoClosePromemoria();
+        })
+        .catch(() => {
+            mostraToast("Errore recupero numero", "error");
+        });
 }
 
 function inviaPromemoriaMail() {
