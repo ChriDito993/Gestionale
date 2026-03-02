@@ -154,6 +154,60 @@ buttonText: {
 
     calendar.render();
 
+    function aggiornaDashboardSettimana() {
+
+        const eventi = calendar.getEvents();
+        const oggi = calendar.getDate(); // usa la settimana visualizzata nel calendario
+
+        const day = oggi.getDay();
+        const diffToMonday = (day === 0 ? -6 : 1) - day;
+        const monday = new Date(oggi);
+        monday.setDate(oggi.getDate() + diffToMonday);
+        monday.setHours(0,0,0,0);
+
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 7);
+
+        let count = 0;
+
+        eventi.forEach(evento => {
+
+            // Ignora eventi di background (es. fascia pranzo)
+            if (evento.display === 'background') return;
+
+            const dataEvento = evento.start;
+
+            if (dataEvento >= monday && dataEvento < sunday) {
+                count++; // conta 1 appuntamento per evento (non per slot)
+            }
+        });
+
+        const weekEl = document.getElementById("weekCount");
+        if (weekEl) weekEl.textContent = count;
+
+        // 🔥 Range settimana dinamico (Lun - Dom)
+        const options = { day: '2-digit', month: 'short' };
+        const lunediLabel = monday.toLocaleDateString('it-IT', options);
+        const domenica = new Date(sunday.getTime() - 86400000);
+        const domenicaLabel = domenica.toLocaleDateString('it-IT', options);
+
+        const weekSub = document.getElementById("weekRangeLabel");
+        if (weekSub) {
+            weekSub.classList.remove("week-range-animate");
+            void weekSub.offsetWidth; // trigger reflow per riattivare animazione
+            weekSub.textContent = `${lunediLabel} – ${domenicaLabel}`;
+            weekSub.classList.add("week-range-animate");
+        }
+    }
+
+    calendar.on('eventsSet', function() {
+        aggiornaDashboardSettimana();
+    });
+
+    calendar.on('datesSet', function() {
+        aggiornaDashboardSettimana();
+    });
+
     // ===============================
     // AUTO OPEN EVENT FROM URL (?open_event=ID)
     // ===============================
