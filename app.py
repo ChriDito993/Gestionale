@@ -143,7 +143,17 @@ def get_clienti():
 @app.route("/api/clienti", methods=["POST"])
 @login_required
 def crea_cliente():
-    data = request.json
+    data = request.json or {}
+
+    telefono = data.get("telefono")
+
+    # Normalizzazione telefono (aggiunge 39 se numero italiano senza prefisso)
+    if telefono:
+        telefono = telefono.replace(" ", "").replace("-", "").replace("+", "")
+        if telefono.startswith("3") and len(telefono) == 10:
+            telefono = "39" + telefono
+        data["telefono"] = telefono
+
     response = supabase.table("clienti").insert(data).execute()
     return jsonify(response.data)
 
@@ -153,11 +163,19 @@ def crea_cliente():
 def aggiorna_cliente(cliente_id):
     data = request.json
 
+    telefono = data.get("telefono")
+
+    # Normalizzazione telefono
+    if telefono:
+        telefono = telefono.replace(" ", "").replace("-", "").replace("+", "")
+        if telefono.startswith("3") and len(telefono) == 10:
+            telefono = "39" + telefono
+
     # Permettiamo solo campi modificabili
     campi_aggiornabili = {
         "nome": data.get("nome"),
         "cognome": data.get("cognome"),
-        "telefono": data.get("telefono"),
+        "telefono": telefono,
         "email": data.get("email")
     }
 
