@@ -179,6 +179,31 @@ buttonText: {
 
     calendar.render();
 
+    function aggiornaDashboardOggi() {
+        fetch('/api/appuntamenti_oggi')
+            .then(res => res.json())
+            .then(data => {
+
+                const dayEl = document.getElementById("dayCount");
+                const labelEl = document.getElementById("dayLabel");
+
+                if (!dayEl || !labelEl) return;
+
+                dayEl.textContent = data.totale;
+
+                const oggi = new Date();
+                const options = { day: '2-digit', month: 'long', year: 'numeric' };
+                labelEl.textContent = oggi.toLocaleDateString('it-IT', options);
+
+                dayEl.style.transform = "scale(1.1)";
+                dayEl.style.transition = "transform 0.2s ease";
+
+                setTimeout(() => {
+                    dayEl.style.transform = "scale(1)";
+                }, 200);
+            });
+    }
+
     function aggiornaDashboardSettimana() {
 
         const eventi = calendar.getEvents();
@@ -257,6 +282,7 @@ buttonText: {
 
     caricaClienti(); // ora carica array per ricerca
     caricaServizi();
+    aggiornaDashboardOggi();
 
     // ===============================
     // MODAL PACCHETTI ATTIVI

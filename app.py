@@ -585,6 +585,32 @@ def pacchetti_dashboard():
     return jsonify(risultati)
 
 # ===============================
+# API DASHBOARD APPUNTAMENTI OGGI
+# ===============================
+
+@app.route("/api/appuntamenti_oggi", methods=["GET"])
+@login_required
+def appuntamenti_oggi():
+
+    today = datetime.now().date()
+    start_day = today.isoformat()
+    end_day = datetime.combine(today, datetime.max.time()).isoformat()
+
+    response = supabase.table("appuntamenti") \
+        .select("id", count="exact") \
+        .gte("start_datetime", start_day) \
+        .lte("start_datetime", end_day) \
+        .execute()
+
+    totale = response.count if response.count else 0
+
+    return jsonify({
+        "totale": totale,
+        "data": start_day
+    })
+
+
+# ===============================
 # API SERVIZI
 # ===============================
 

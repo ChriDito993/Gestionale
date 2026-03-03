@@ -48,10 +48,21 @@
             <span class="dashboard-label">Pacchetti Attivi</span>
             <span class="dashboard-value">{{ dashboard_pacchetti }}</span>
         </div>
+
         <div class="dashboard-card">
             <span class="dashboard-label">Clienti Totali</span>
             <span class="dashboard-value">{{ dashboard_clienti }}</span>
         </div>
+
+        <div class="dashboard-card">
+            <span class="dashboard-label">Appuntamenti Oggi</span>
+            <span class="dashboard-value" id="dayCount">0</span>
+            <span id="dayLabel"
+                  style="display:block; margin-top:6px; font-size:11px; font-weight:600; letter-spacing:0.8px; text-transform:uppercase; color:#6b7280;">
+                Oggi
+            </span>
+        </div>
+
         <div class="dashboard-card">
             <span class="dashboard-label">Appuntamenti Settimana</span>
             <span class="dashboard-value" id="weekCount">0</span>
