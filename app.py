@@ -171,6 +171,49 @@ def aggiorna_cliente(cliente_id):
 
     return jsonify(response.data)
 
+# DELETE route per eliminare cliente
+@app.route("/api/clienti/<cliente_id>", methods=["DELETE"])
+@login_required
+def elimina_cliente(cliente_id):
+
+    # Prima eliminiamo eventuali relazioni in appuntamenti_clienti
+    try:
+        supabase.table("appuntamenti_clienti") \
+            .delete() \
+            .eq("cliente_id", cliente_id) \
+            .execute()
+    except Exception as e:
+        print("Errore eliminazione relazioni appuntamenti_clienti:", e)
+
+    # Eliminiamo eventuali pacchetti cliente
+    try:
+        supabase.table("pacchetti_cliente") \
+            .delete() \
+            .eq("cliente_id", cliente_id) \
+            .execute()
+    except Exception as e:
+        print("Errore eliminazione pacchetti_cliente:", e)
+
+    # Eliminiamo eventuali appuntamenti legati (compatibilità vecchio campo cliente_id)
+    try:
+        supabase.table("appuntamenti") \
+            .delete() \
+            .eq("cliente_id", cliente_id) \
+            .execute()
+    except Exception as e:
+        print("Errore eliminazione appuntamenti:", e)
+
+    # Infine eliminiamo il cliente
+    response = supabase.table("clienti") \
+        .delete() \
+        .eq("id", cliente_id) \
+        .execute()
+
+    if not response.data:
+        return jsonify({"error": "Cliente non trovato"}), 404
+
+    return jsonify({"success": True})
+
 # GET route per recuperare singolo cliente (usato per WhatsApp reminder)
 @app.route("/api/clienti/<cliente_id>", methods=["GET"])
 @login_required
@@ -265,7 +308,8 @@ def get_appuntamenti():
         "clienti": nomi_clienti,
         "clienti_ids": clienti_ids,
         "servizio": nome_servizio,
-        "numero_seduta": appo.get("numero_seduta")
+        "numero_seduta": appo.get("numero_seduta"),
+        "reminder_whatsapp": appo.get("reminder_whatsapp", False)
     }
 })
 
@@ -404,6 +448,7 @@ def aggiorna_appuntamento(id):
         .execute()
     return jsonify(response.data)
 
+
 @app.route("/api/appuntamenti/<id>", methods=["DELETE"])
 @login_required
 def elimina_appuntamento(id):
@@ -434,6 +479,25 @@ def elimina_appuntamento(id):
         .delete() \
         .eq("id", id) \
         .execute()
+
+    return jsonify({"success": True})
+
+
+# ===============================
+# SET REMINDER WHATSAPP
+# ===============================
+
+@app.route("/api/appuntamenti/<app_id>/reminder_whatsapp", methods=["POST"])
+@login_required
+def set_reminder_whatsapp(app_id):
+
+    response = supabase.table("appuntamenti") \
+        .update({"reminder_whatsapp": True}) \
+        .eq("id", app_id) \
+        .execute()
+
+    if not response.data:
+        return jsonify({"error": "Appuntamento non trovato"}), 404
 
     return jsonify({"success": True})
 

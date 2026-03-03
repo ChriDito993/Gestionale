@@ -149,7 +149,32 @@ buttonText: {
 
             // Testo sempre bianco per contrasto
             info.el.style.color = "#ffffff";
-},
+
+            // ✔ Badge minimal reminder WhatsApp inviato
+            if (info.event.extendedProps?.reminder_whatsapp) {
+
+                const badge = document.createElement("div");
+                badge.textContent = "✔";
+
+                badge.style.position = "absolute";
+                badge.style.top = "4px";
+                badge.style.right = "6px";
+                badge.style.width = "16px";
+                badge.style.height = "16px";
+                badge.style.borderRadius = "50%";
+                badge.style.display = "flex";
+                badge.style.alignItems = "center";
+                badge.style.justifyContent = "center";
+                badge.style.fontSize = "10px";
+                badge.style.fontWeight = "700";
+                badge.style.background = "rgba(255,255,255,0.95)";
+                badge.style.color = "#2a9d8f";
+                badge.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
+
+                info.el.style.position = "relative";
+                info.el.appendChild(badge);
+            }
+        },
     });
 
     calendar.render();

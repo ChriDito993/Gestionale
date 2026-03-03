@@ -20,6 +20,22 @@
             <a href="/clienti" class="btn-primary">
                 ← Torna ai Clienti
             </a>
+
+            <button onclick="apriEliminaClienteModal()"
+                    style="
+                        background: transparent;
+                        border: 1px solid #ef4444;
+                        color: #ef4444;
+                        padding: 10px 16px;
+                        border-radius: 12px;
+                        font-weight: 500;
+                        cursor: pointer;
+                        transition: all 0.2s ease;
+                    "
+                    onmouseenter="this.style.background='#ef4444';this.style.color='#fff';this.style.boxShadow='0 10px 25px rgba(239,68,68,0.35)'"
+                    onmouseleave="this.style.background='transparent';this.style.color='#ef4444';this.style.boxShadow='none'">
+                Elimina Cliente
+            </button>
         </div>
     </header>
 
@@ -214,6 +230,40 @@
 
 </div>
 
+<!-- MODALE ELIMINA CLIENTE -->
+<div id="eliminaClienteModal" class="modal">
+    <div class="modal-content" style="max-width:420px; text-align:center;">
+        <span class="close" onclick="chiudiEliminaClienteModal()">✖</span>
+        <h3 style="margin-bottom:18px;">Conferma Eliminazione</h3>
+        <p style="margin-bottom:28px; color:#6b7280;">
+            Questa operazione eliminerà definitivamente il cliente e tutti i dati collegati.
+        </p>
+        <div style="display:flex; justify-content:center; gap:16px;">
+            <button onclick="chiudiEliminaClienteModal()"
+                    class="btn-apple-ghost"
+                    style="width:140px;">
+                Annulla
+            </button>
+            <button onclick="eliminaCliente('{{ cliente.id }}')"
+                    style="
+                        width:140px;
+                        border:none;
+                        border-radius:16px;
+                        background:linear-gradient(135deg,#ef4444,#dc2626);
+                        color:white;
+                        font-weight:600;
+                        cursor:pointer;
+                        box-shadow:0 15px 35px rgba(239,68,68,0.35);
+                        transition:all 0.2s ease;
+                    "
+                    onmouseenter="this.style.transform='translateY(-2px)'"
+                    onmouseleave="this.style.transform='none'">
+                Elimina
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- MODALE MODIFICA ANAGRAFICA -->
 <div id="modificaClienteModal" class="modal">
     <div class="modal-content">
@@ -271,6 +321,28 @@ function toggleStorico() {
         section.classList.add("storico-collapsed");
         btn.textContent = "Mostra storico";
     }
+}
+
+function apriEliminaClienteModal() {
+    document.getElementById("eliminaClienteModal").style.display = "block";
+}
+
+function chiudiEliminaClienteModal() {
+    document.getElementById("eliminaClienteModal").style.display = "none";
+}
+
+function eliminaCliente(clienteId) {
+    fetch("/api/clienti/" + clienteId, {
+        method: "DELETE"
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            window.location.href = "/clienti";
+        } else {
+            alert("Errore durante eliminazione cliente");
+        }
+    });
 }
 </script>
 
