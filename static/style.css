@@ -223,12 +223,25 @@ html, button, input, select, textarea {
 .fc-theme-standard td,
 .fc-theme-standard th {
     border-color: #dbe2ea !important;
+    border-width: 1.5px !important;
 }
 
-/* Make vertical and horizontal lines slightly more visible */
-.fc-timegrid-slot,
+
+/* Base slot lines (30 min) – subtle */
+.fc-timegrid-slot {
+    border-color: #dbe3ec !important;
+    border-width: 1px !important;
+}
+
+/* Hour separator – slightly stronger but harmonious */
+.fc-timegrid-slot[data-time$=":00:00"] {
+    border-top: 1.6px solid #cbd5e1 !important;
+}
+
+/* Vertical day columns */
 .fc-timegrid-col {
-    border-color: #e2e8f0 !important;
+    border-color: #cfd8e3 !important;
+    border-width: 1.5px !important;
 }
 
 /* Fill header row (days) softly */
@@ -241,11 +254,6 @@ html, button, input, select, textarea {
     background: #f8fafc;
 }
 
-/* Day hover micro highlight */
-.fc-timegrid-col:hover {
-    background: rgba(17,24,39,0.035);
-    transition: background 0.2s ease;
-}
 
 /* Header day hover */
 .fc-col-header-cell:hover {
@@ -253,14 +261,11 @@ html, button, input, select, textarea {
     transition: background 0.2s ease;
 }
 
-/* Refined lunch break band (13:30–15:00 approx) */
+/* Lunch break band – static (no animation) */
 .fc-timegrid-slot[data-time^="13:3"],
 .fc-timegrid-slot[data-time^="14:"] {
-    background: linear-gradient(
-        to right,
-        rgba(17,24,39,0.035),
-        rgba(17,24,39,0.02)
-    );
+    background: rgba(17,24,39,0.02);
+    transition: none !important;
 }
 
 /* Subtle separator line above lunch */
@@ -278,15 +283,40 @@ html, button, input, select, textarea {
     border-color: #eef2f7 !important;
 }
 
+/* Reduce vertical height of calendar slots for a more compact calendar */
 .fc-timegrid-slot {
-    height: 34px !important;
+    height: 56px !important; /* taller rows for better readability of appointments */
 }
 
 .fc-timegrid-axis {
-    font-size: 12px;
-    color: #6b7280;
-    font-weight: 500;
+    /* Time column typography – stronger presence */
+    width: 72px; /* slightly wider so 'TUTTO IL GIORNO' fits */
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: 0.4px;
+    font-variant-numeric: tabular-nums;
 }
+
+/* Improve alignment and readability of time labels */
+
+.fc-timegrid-axis-cushion {
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    color: #0f172a;
+    letter-spacing: 0.3px;
+    position: relative;
+}
+
+
+/* Style default all-day label with same typography */
+.fc-timegrid-axis-cushion {
+    text-transform: none;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}
+
 
 .fc-col-header-cell {
     padding: 8px 0 !important;
@@ -326,21 +356,58 @@ html, button, input, select, textarea {
 }
 
 .fc-event {
-    border: none !important;
-    border-radius: 12px !important;
-    font-weight: 500;
-    padding: 6px 12px !important;
-    font-size: 0.82rem;
+    border: 1px solid rgba(0,0,0,0.06) !important; /* subtle edge so events separate from grid */
+    border-radius: 14px !important;
+    font-weight: 600;
+    padding: 12px 16px !important; /* slightly larger event boxes */
+    font-size: 1rem; /* bigger text for better readability */
     color: #ffffff !important;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.12);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.18);
+    transition: transform 0.18s cubic-bezier(.4,0,.2,1),
+                box-shadow 0.18s cubic-bezier(.4,0,.2,1),
+                filter 0.18s ease;
     font-family: 'Inter', 'Segoe UI', sans-serif;
-    backdrop-filter: blur(6px);
+    min-height: 56px; /* make appointment blocks visually larger */
+    overflow: hidden; /* prevents text from spilling outside the event box */
+}
+
+.fc-timegrid-event {
+    min-height: 56px !important;
 }
 
 .fc-event:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 8px 18px rgba(0,0,0,0.16);
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 14px 32px rgba(0,0,0,0.25);
+    filter: brightness(1.06);
+}
+
+/* Stronger visual feedback when event is selected */
+.fc-event.fc-event-selected,
+.fc-event:focus,
+.fc-event:active {
+    outline: none !important; /* remove black border when creating/selecting */
+    box-shadow: 0 10px 26px rgba(0,0,0,0.18);
+    transform: scale(1.01);
+}
+
+.fc-event-main-frame {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 2px 0;
+}
+
+.fc-event-title {
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    font-size: clamp(0.82rem, 0.9vw, 1rem); /* adapts to cell size */
+    line-height: 1.2;
+    white-space: normal; /* allow wrapping */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: break-word;
+    display: block;
 }
 
 /* ========================= */
@@ -1490,4 +1557,11 @@ select {
         opacity: 1;
         transform: translateY(0);
     }
+}
+.fc-event-service {
+    font-size: clamp(0.70rem, 0.75vw, 0.88rem);
+    line-height: 1.15;
+    word-break: break-word;
+    display: block;
+    opacity: 0.9;
 }

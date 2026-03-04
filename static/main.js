@@ -30,10 +30,13 @@ buttonText: {
         initialDate: new Date(),
         locale: 'it',
         selectable: true,
+        selectMirror: true, // mostra anteprima evento mentre trascini (stile Apple Calendar)
         editable: true,
-        slotDuration: "00:15:00",
-        snapDuration: "00:15:00",
-        slotLabelInterval: "00:30:00",
+        slotEventOverlap: true, // permette agli eventi di sovrapporsi
+        // Visual grid every 30 minutes, but allow dragging/creating every 15 minutes
+        slotDuration: "00:30:00",   // linee calendario
+        snapDuration: "00:15:00",   // precisione drag a 15 minuti
+        slotLabelInterval: "01:00:00", // mostra solo ore piene nella colonna
         slotMinTime: "08:00:00",
         slotMaxTime: "21:00:00",
 
@@ -66,6 +69,11 @@ buttonText: {
 
         },
 
+        // Preview visivo mentre trascini per creare appuntamento
+        selectAllow: function(selectInfo) {
+            return true;
+        },
+
         select: function(info) {
             selectedStart = info.startStr;
 
@@ -94,6 +102,27 @@ buttonText: {
         },
 
         eventContent: function(arg) {
+            // Handle preview while dragging (mirror event)
+            if (arg.isMirror) {
+                const wrapper = document.createElement("div");
+                wrapper.style.fontSize = "12px";
+                wrapper.style.fontWeight = "600";
+                wrapper.style.opacity = "0.8";
+                wrapper.style.color = "#000000"; // testo nero per anteprima
+
+                const start = arg.event.start;
+                const end = arg.event.end;
+
+                if (start && end) {
+                    const startStr = start.toTimeString().slice(0,5);
+                    const endStr = end.toTimeString().slice(0,5);
+                    wrapper.textContent = `${startStr} – ${endStr}`;
+                } else {
+                    wrapper.textContent = "Nuovo appuntamento";
+                }
+
+                return { domNodes: [wrapper] };
+            }
             const clienti = arg.event.extendedProps?.clienti || "";
             const servizio = arg.event.extendedProps?.servizio || "";
 
@@ -103,6 +132,7 @@ buttonText: {
             wrapper.style.gap = "2px";
 
             const nomeEl = document.createElement("div");
+            nomeEl.className = "fc-event-title";
             // Formattazione nomi clienti (es: "👥 Monica + Angela")
             let displayClienti = clienti;
 
@@ -119,12 +149,11 @@ buttonText: {
 
             nomeEl.textContent = displayClienti;
             nomeEl.style.fontWeight = "600";
-            nomeEl.style.fontSize = "12px";
             nomeEl.style.letterSpacing = "0.2px";
 
             const servizioEl = document.createElement("div");
             servizioEl.textContent = servizio;
-            servizioEl.style.fontSize = "11px";
+            servizioEl.className = "fc-event-service";
             servizioEl.style.opacity = "0.85";
 
             wrapper.appendChild(nomeEl);
@@ -135,6 +164,14 @@ buttonText: {
             return { domNodes: [wrapper] };
         },
         eventDidMount: function(info) {
+            // 🎯 Preview evento mentre trascini per creare appuntamento
+            if (info.isMirror) {
+                info.el.style.backgroundColor = "rgba(107,114,128,0.25)"; // grigio soft trasparente
+                info.el.style.border = "1px dashed rgba(55,65,81,0.6)";
+                info.el.style.color = "#111827";
+                info.el.style.boxShadow = "none";
+                return; // evita applicazione colori servizio
+            }
 
             const servizio = info.event.extendedProps?.servizio;
              if (!servizio) return;
@@ -449,9 +486,20 @@ function aggiornaOrario(evento) {
 
 function apriModal() {
     clientiSelezionati = [];
-    document.getElementById("eventoModal").style.display = "block";
+
+    const modal = document.getElementById("eventoModal");
+    modal.style.display = "block";
+
     inizializzaRicercaClienti();
     aggiornaClientiSelezionati();
+
+    // Focus automatico sulla ricerca cliente (scrivi subito)
+    setTimeout(() => {
+        const searchInput = document.getElementById("searchCliente");
+        if (searchInput) {
+            searchInput.focus();
+        }
+    }, 50);
 }
 
 function chiudiModal() {
