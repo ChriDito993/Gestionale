@@ -310,7 +310,8 @@ def get_appuntamenti():
         nome_servizio = appo["servizi"]["nome"]
         colore = appo["servizi"]["colore_calendario"]
 
-        titolo = f"{nomi_clienti} - {nome_servizio}" if nomi_clienti else nome_servizio
+        # Il titolo deve contenere solo il servizio (i clienti vengono mostrati nel popup)
+        titolo = nome_servizio
 
         # 🔹 Aggiungi numero seduta se presente
         if appo.get("numero_seduta"):
@@ -665,9 +666,21 @@ def dettaglio_cliente(cliente_id):
 
     now = datetime.now().isoformat()
 
-    appuntamenti_raw = supabase.table("appuntamenti") \
-        .select("*, servizi(nome)") \
+    # Recupero appuntamenti tramite tabella ponte
+    relazioni = supabase.table("appuntamenti_clienti") \
+        .select("appuntamento_id") \
         .eq("cliente_id", cliente_id) \
+        .execute().data
+
+    appuntamenti_ids = [r["appuntamento_id"] for r in relazioni]
+
+    # Evita errore se lista vuota
+    if not appuntamenti_ids:
+        appuntamenti_ids = ["00000000-0000-0000-0000-000000000000"]
+
+    appuntamenti_raw = supabase.table("appuntamenti") \
+        .select("*, servizi(nome), appuntamenti_clienti(cliente_id, clienti(nome,cognome))") \
+        .in_("id", appuntamenti_ids) \
         .gte("start_datetime", now) \
         .order("start_datetime") \
         .execute().data
@@ -678,11 +691,21 @@ def dettaglio_cliente(cliente_id):
         dt = datetime.fromisoformat(appo["start_datetime"].replace("Z", "+00:00"))
         data_formattata = dt.strftime("%d/%m/%Y ore %H:%M")
 
+        condivisi = []
+
+        for rel in appo.get("appuntamenti_clienti", []):
+            cid = rel.get("cliente_id")
+            cliente_rel = rel.get("clienti")
+
+            if cid and str(cid) != str(cliente_id) and cliente_rel:
+                condivisi.append(f"👤 {cliente_rel['nome']} {cliente_rel['cognome']}")
+
         appuntamenti.append({
             "id": appo["id"],
             "data_formattata": data_formattata,
             "servizio": appo["servizi"]["nome"],
-            "stato": appo["stato"]
+            "stato": appo["stato"],
+            "condivisi": condivisi
         })
 
     # ===============================
@@ -690,8 +713,8 @@ def dettaglio_cliente(cliente_id):
     # ===============================
 
     storico_raw = supabase.table("appuntamenti") \
-        .select("*, servizi(nome)") \
-        .eq("cliente_id", cliente_id) \
+        .select("*, servizi(nome), appuntamenti_clienti(cliente_id, clienti(nome,cognome))") \
+        .in_("id", appuntamenti_ids) \
         .order("start_datetime", desc=True) \
         .execute().data
 
@@ -707,11 +730,19 @@ def dettaglio_cliente(cliente_id):
         dt = datetime.fromisoformat(appo["start_datetime"].replace("Z", "+00:00"))
         data_formattata = dt.strftime("%d/%m/%Y ore %H:%M")
 
+        condivisi = []
+        for rel in appo.get("appuntamenti_clienti", []):
+            cid = rel.get("cliente_id")
+            cliente_rel = rel.get("clienti")
+            if cid and str(cid) != str(cliente_id) and cliente_rel:
+                condivisi.append(f"👤 {cliente_rel['nome']} {cliente_rel['cognome']}")
+
         storico_appuntamenti.append({
             "id": appo["id"],
             "data_formattata": data_formattata,
             "servizio": appo["servizi"]["nome"],
-            "numero_seduta": appo.get("numero_seduta")
+            "numero_seduta": appo.get("numero_seduta"),
+            "condivisi": condivisi
         })
 
         # Calcolo totale sedute (basato su numero_seduta)

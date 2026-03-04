@@ -517,11 +517,18 @@ function apriModificaModal() {
         // Se abbiamo array ID clienti (multi cliente)
         if (Array.isArray(clientiIds) && clientiIds.length > 0) {
 
+            // Se i clienti arrivano come stringa tipo "Nome1 + Nome2" li separiamo
+            let nomiArray = [];
+
+            if (Array.isArray(clienti)) {
+                nomiArray = clienti;
+            } else if (typeof clienti === "string") {
+                nomiArray = clienti.split("+").map(n => n.trim());
+            }
+
             clientiIds.forEach((id, index) => {
 
-                const nomeVisualizzato = Array.isArray(clienti)
-                    ? clienti[index]
-                    : clienti;
+                const nomeVisualizzato = nomiArray[index] || "Cliente";
 
                 titoloHTML += `
                     <div style="
