@@ -103,7 +103,21 @@ buttonText: {
             wrapper.style.gap = "2px";
 
             const nomeEl = document.createElement("div");
-            nomeEl.textContent = clienti;
+            // Formattazione nomi clienti (es: "👥 Monica + Angela")
+            let displayClienti = clienti;
+
+            if (clienti.includes("+")) {
+                const parti = clienti.split("+").map(n => n.trim());
+
+                const firstNames = parti.map(nomeCompleto => {
+                    const parts = nomeCompleto.split(" ");
+                    return parts[0];
+                });
+
+                displayClienti = `👥 ${firstNames.join(" + ")}`;
+            }
+
+            nomeEl.textContent = displayClienti;
             nomeEl.style.fontWeight = "600";
             nomeEl.style.fontSize = "12px";
             nomeEl.style.letterSpacing = "0.2px";
