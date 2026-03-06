@@ -26,7 +26,12 @@ buttonText: {
     day: 'Giorno'
 },
         height: 'auto',
+        contentHeight: 'auto',
         expandRows: true,
+        nowIndicator: true,
+        lazyFetching: true,
+        progressiveEventRendering: true,
+        rerenderDelay: 50,
         initialDate: new Date(),
         locale: 'it',
         selectable: true,
@@ -56,23 +61,17 @@ buttonText: {
         ],
 
         events: function(fetchInfo, successCallback, failureCallback) {
-
             fetch(`/api/appuntamenti?start=${fetchInfo.startStr}&end=${fetchInfo.endStr}`)
-                .then(response => response.json())
-                .then(data => {
-                    successCallback(data);
-                })
+                .then(r => r.json())
+                .then(successCallback)
                 .catch(error => {
                     console.error("Errore caricamento eventi:", error);
                     failureCallback(error);
                 });
-
         },
 
         // Preview visivo mentre trascini per creare appuntamento
-        selectAllow: function(selectInfo) {
-            return true;
-        },
+        selectAllow: () => true,
 
         select: function(info) {
             selectedStart = info.startStr;
@@ -93,13 +92,8 @@ buttonText: {
             apriModificaModal();
         },
 
-        eventDrop: function(info) {
-            aggiornaOrario(info.event);
-        },
-
-        eventResize: function(info) {
-            aggiornaOrario(info.event);
-        },
+        eventDrop: info => aggiornaOrario(info.event),
+        eventResize: info => aggiornaOrario(info.event),
 
         eventContent: function(arg) {
             // Handle preview while dragging (mirror event)
@@ -266,8 +260,7 @@ buttonText: {
         monday.setDate(oggi.getDate() + diffToMonday);
         monday.setHours(0,0,0,0);
 
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 7);
+        const sunday = new Date(monday.getTime() + 7 * 86400000);
 
         let count = 0;
 
@@ -294,20 +287,14 @@ buttonText: {
 
         const weekSub = document.getElementById("weekRangeLabel");
         if (weekSub) {
-            weekSub.classList.remove("week-range-animate");
-            void weekSub.offsetWidth; // trigger reflow per riattivare animazione
             weekSub.textContent = `${lunediLabel} – ${domenicaLabel}`;
-            weekSub.classList.add("week-range-animate");
+            weekSub.classList.remove("week-range-animate");
+            requestAnimationFrame(() => weekSub.classList.add("week-range-animate"));
         }
     }
 
-    calendar.on('eventsSet', function() {
-        aggiornaDashboardSettimana();
-    });
-
-    calendar.on('datesSet', function() {
-        aggiornaDashboardSettimana();
-    });
+    calendar.on('eventsSet', aggiornaDashboardSettimana);
+    calendar.on('datesSet', aggiornaDashboardSettimana);
 
     // ===============================
     // AUTO OPEN EVENT FROM URL (?open_event=ID)
@@ -466,16 +453,21 @@ function caricaPacchettiCliente(clienteId) {
 =================================*/
 
 function aggiornaOrario(evento) {
+    const endISO = evento.end
+        ? evento.end.toISOString()
+        : new Date(evento.start.getTime() + 60 * 60000).toISOString();
 
     fetch('/api/appuntamenti/' + evento.id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             start_datetime: evento.start.toISOString(),
-            end_datetime: evento.end.toISOString()
+            end_datetime: endISO
         })
     }).then(() => {
-        calendar.refetchEvents();
+        // aggiorna solo l'evento senza ricaricare tutto il calendario
+        const ev = calendar.getEventById(evento.id);
+        if (ev) ev.setDates(evento.start, evento.end);
     });
 }
 
@@ -488,22 +480,19 @@ function apriModal() {
     clientiSelezionati = [];
 
     const modal = document.getElementById("eventoModal");
-    modal.style.display = "block";
+    requestAnimationFrame(() => modal.style.display = "block");
 
     inizializzaRicercaClienti();
     aggiornaClientiSelezionati();
 
-    // Focus automatico sulla ricerca cliente (scrivi subito)
-    setTimeout(() => {
-        const searchInput = document.getElementById("searchCliente");
-        if (searchInput) {
-            searchInput.focus();
-        }
-    }, 50);
+    const searchInput = document.getElementById("searchCliente");
+    if (searchInput) requestAnimationFrame(() => searchInput.focus());
 }
 
 function chiudiModal() {
-    document.getElementById("eventoModal").style.display = "none";
+    const m = document.getElementById("eventoModal");
+    if (!m) return;
+    requestAnimationFrame(() => m.style.display = "none");
 }
 
 function salvaEvento() {
@@ -565,7 +554,7 @@ function getColoreServizio(servizio) {
 
 function apriModificaModal() {
 
-    const extended = window.eventoSelezionato._def?.extendedProps || {};
+    const extended = window.eventoSelezionato.extendedProps || {};
 
     const clienti = extended.clienti || "";
     const clientiIds = extended.clienti_ids || [];
@@ -683,8 +672,10 @@ function apriModificaModal() {
 
     const modal = document.getElementById("modificaModal");
     if (!modal) return;
-    modal.style.display = "block";   // assicura visibilità
-    modal.classList.add("modal-active");
+    requestAnimationFrame(() => {
+        modal.style.display = "block";
+        modal.classList.add("modal-active");
+    });
 
     // 🎯 Restyle bottone elimina PREMIUM (selezione sicura per classe)
     const deleteBtn = modal.querySelector(".btn-danger");
@@ -728,7 +719,7 @@ function chiudiModificaModal() {
     if (!modal) return;
 
     modal.classList.remove("modal-active");
-    modal.style.display = "none";  // chiusura reale del modal
+    requestAnimationFrame(() => modal.style.display = "none");
 }
 
 
@@ -758,7 +749,7 @@ window.addEventListener("click", function(event) {
     if (pacchettiModal && event.target === pacchettiModal) {
         pacchettiModal.style.display = "none";
     }
-});
+}, { passive: true });
 
 window.addEventListener("keydown", function(event) {
 
@@ -779,7 +770,7 @@ window.addEventListener("keydown", function(event) {
     if (modificaModal && modificaModal.style.display === "block") {
         chiudiModificaModal();
     }
-});
+}, { passive: true });
 
 function salvaModifiche() {
 
@@ -861,7 +852,7 @@ function inviaPromemoriaWhatsApp() {
         return;
     }
 
-    const extended = window.eventoSelezionato._def?.extendedProps || {};
+    const extended = window.eventoSelezionato.extendedProps || {};
     const clientiIds = extended.clienti_ids || [];
     const servizio = extended.servizio || "trattamento";
 
@@ -978,46 +969,54 @@ function inizializzaRicercaClienti() {
     risultatiDiv.innerHTML = "";
     risultatiDiv.style.display = "none";
 
+    let debounceTimer;
+
     searchInput.oninput = function() {
 
-        const valore = this.value.toLowerCase();
-        risultatiDiv.innerHTML = "";
+        clearTimeout(debounceTimer);
 
-        if (valore.length < 1) {
-            risultatiDiv.style.display = "none";
-            return;
-        }
+        debounceTimer = setTimeout(() => {
 
-        const filtrati = tuttiClienti.filter(c =>
-            c.nome.toLowerCase().includes(valore) ||
-            c.cognome.toLowerCase().includes(valore)
-        );
+            const valore = this.value.toLowerCase();
+            risultatiDiv.innerHTML = "";
 
-        filtrati.forEach(cliente => {
-
-            const div = document.createElement("div");
-            div.textContent = cliente.nome + " " + cliente.cognome;
-
-            div.onclick = function() {
-
-                if (clientiSelezionati.length >= 2) {
-                    mostraToast("Puoi selezionare massimo 2 clienti", "info");
-                    return;
-                }
-
-                if (!clientiSelezionati.find(c => c.id === cliente.id)) {
-                    clientiSelezionati.push(cliente);
-                    aggiornaClientiSelezionati();
-                }
-
+            if (valore.length < 1) {
                 risultatiDiv.style.display = "none";
-                searchInput.value = "";
-            };
+                return;
+            }
 
-            risultatiDiv.appendChild(div);
-        });
+            const filtrati = tuttiClienti.filter(c =>
+                (c.nome || "").toLowerCase().includes(valore) ||
+                (c.cognome || "").toLowerCase().includes(valore)
+            );
 
-        risultatiDiv.style.display = "block";
+            filtrati.forEach(cliente => {
+
+                const div = document.createElement("div");
+                div.textContent = cliente.nome + " " + cliente.cognome;
+
+                div.onclick = function() {
+
+                    if (clientiSelezionati.length >= 2) {
+                        mostraToast("Puoi selezionare massimo 2 clienti", "info");
+                        return;
+                    }
+
+                    if (!clientiSelezionati.find(c => c.id === cliente.id)) {
+                        clientiSelezionati.push(cliente);
+                        aggiornaClientiSelezionati();
+                    }
+
+                    risultatiDiv.style.display = "none";
+                    searchInput.value = "";
+                };
+
+                risultatiDiv.appendChild(div);
+            });
+
+            risultatiDiv.style.display = "block";
+
+        }, 120);
     };
 }
 
