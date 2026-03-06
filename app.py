@@ -136,7 +136,9 @@ def logout():
 @app.route("/api/clienti", methods=["GET"])
 @login_required
 def get_clienti():
-    response = supabase.table("clienti").select("*").execute()
+    response = supabase.table("clienti") \
+        .select("id,nome,cognome,telefono,email") \
+        .execute()
     return jsonify(response.data)
 
 
@@ -560,7 +562,7 @@ def get_pacchetti_attivi(cliente_id):
 def pacchetti_dashboard():
 
     pacchetti = supabase.table("pacchetti_cliente") \
-        .select("*, clienti(nome,cognome), tipi_pacchetto(nome, numero_sedute)") \
+        .select("id,sedute_effettuate,clienti(nome,cognome),tipi_pacchetto(nome,numero_sedute)") \
         .eq("stato", "attivo") \
         .execute().data
 
@@ -598,7 +600,7 @@ def appuntamenti_oggi():
     end_day = datetime.combine(today, datetime.max.time()).isoformat()
 
     response = supabase.table("appuntamenti") \
-        .select("id", count="exact") \
+        .select("id", count="planned") \
         .gte("start_datetime", start_day) \
         .lte("start_datetime", end_day) \
         .execute()
@@ -618,7 +620,9 @@ def appuntamenti_oggi():
 @app.route("/api/servizi", methods=["GET"])
 @login_required
 def get_servizi():
-    response = supabase.table("servizi").select("*").execute()
+    response = supabase.table("servizi") \
+        .select("id,nome,colore_calendario") \
+        .execute()
     return jsonify(response.data)
 
 # ===============================
@@ -629,7 +633,7 @@ def get_servizi():
 @login_required
 def lista_clienti():
     response = supabase.table("clienti") \
-        .select("*") \
+        .select("id,nome,cognome,telefono,email") \
         .order("cognome") \
         .execute()
 
