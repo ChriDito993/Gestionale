@@ -454,6 +454,43 @@ html, button, input, select, textarea {
     display: block;
 }
 
+.event-schedule-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+}
+
+.schedule-field {
+    min-width: 0;
+}
+
+.schedule-field .input-apple {
+    margin-top: 0;
+}
+
+#eventoModal .modal-content {
+    max-height: min(88vh, 760px);
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+#eventoModal input[type="date"],
+#eventoModal input[type="time"] {
+    min-width: 0;
+    width: 100%;
+}
+
+@media (max-width: 1180px) {
+    #eventoModal .event-schedule-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #eventoModal .event-schedule-grid .schedule-field:first-child {
+        grid-column: 1 / -1;
+    }
+}
+
 .close {
     position: absolute;
     right: 25px;
@@ -1743,9 +1780,17 @@ select {
         align-items: center;
         justify-content: center;
     }
+
+    body.mobile-calendar-mode .event-schedule-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 640px) {
+    #eventoModal .event-schedule-grid {
+        grid-template-columns: 1fr;
+    }
+
     body.mobile-calendar-mode .header-right {
         grid-template-columns: 1fr;
     }

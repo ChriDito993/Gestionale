@@ -58,6 +58,53 @@ function creaFabMobile() {
     document.body.appendChild(fab);
 }
 
+function formatDateForInput(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function formatTimeForInput(date) {
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+}
+
+function sincronizzaCampiDataOraNuovoEvento() {
+    const inputData = document.getElementById("eventoData");
+    const inputOraInizio = document.getElementById("eventoOraInizio");
+    const inputOraFine = document.getElementById("eventoOraFine");
+    if (!inputData || !inputOraInizio || !inputOraFine) return;
+
+    const start = selectedStart ? new Date(selectedStart) : calcolaStartDefaultPerMobile();
+    let end = selectedEnd ? new Date(selectedEnd) : null;
+    if (!end || Number.isNaN(end.getTime()) || end <= start) {
+        end = new Date(start.getTime() + DEFAULT_APPOINTMENT_MINUTES * 60000);
+    }
+
+    inputData.value = formatDateForInput(start);
+    inputOraInizio.value = formatTimeForInput(start);
+    inputOraFine.value = formatTimeForInput(end);
+}
+
+function leggiDataOraDalModalNuovoEvento() {
+    const data = document.getElementById("eventoData")?.value;
+    const oraInizio = document.getElementById("eventoOraInizio")?.value;
+    const oraFine = document.getElementById("eventoOraFine")?.value;
+
+    if (!data || !oraInizio || !oraFine) return null;
+
+    const startLocal = new Date(`${data}T${oraInizio}:00`);
+    const endLocal = new Date(`${data}T${oraFine}:00`);
+
+    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) {
+        return null;
+    }
+
+    return { startLocal, endLocal };
+}
+
 document.addEventListener('DOMContentLoaded', function () {
 
     var calendarEl = document.getElementById('calendar');
@@ -509,11 +556,16 @@ function aggiornaOrario(evento) {
 function apriModal() {
     clientiSelezionati = [];
 
+    if (!selectedStart || !selectedEnd) {
+        impostaSelezioneDaData(calcolaStartDefaultPerMobile());
+    }
+
     const modal = document.getElementById("eventoModal");
     requestAnimationFrame(() => modal.style.display = "block");
 
     inizializzaRicercaClienti();
     aggiornaClientiSelezionati();
+    sincronizzaCampiDataOraNuovoEvento();
 
     const searchInput = document.getElementById("searchCliente");
     if (searchInput) requestAnimationFrame(() => searchInput.focus());
@@ -529,6 +581,22 @@ function salvaEvento() {
 
     const servizioId = document.getElementById("servizioSelect").value;
     const pacchettoId = document.getElementById("pacchettoSelect")?.value || null;
+    const dataOrarioCustom = leggiDataOraDalModalNuovoEvento();
+
+    if (!dataOrarioCustom) {
+        alert("Inserisci data e orario validi.");
+        return;
+    }
+
+    const { startLocal, endLocal } = dataOrarioCustom;
+
+    if (endLocal <= startLocal) {
+        alert("L'ora di fine deve essere successiva all'ora di inizio.");
+        return;
+    }
+
+    selectedStart = startLocal.toISOString();
+    selectedEnd = endLocal.toISOString();
 
     if (clientiSelezionati.length === 0 || !servizioId) {
         mostraToast("Seleziona almeno un cliente e un servizio", "warning");
