@@ -58,6 +58,15 @@ _pacchetti_dashboard_cache = {
 }
 
 # ===============================
+# SIMPLE CALENDAR CACHE
+# ===============================
+_calendar_cache = {
+    "key": None,
+    "timestamp": None,
+    "data": []
+}
+
+# ===============================
 # LOGIN REQUIRED DECORATOR
 # ===============================
 
@@ -298,6 +307,20 @@ def get_appuntamenti():
     start = request.args.get("start")
     end = request.args.get("end")
 
+    global _calendar_cache
+    from datetime import timedelta
+
+    cache_key = f"{start}_{end}"
+    now = datetime.now()
+
+    # Usa cache se valida (30 secondi)
+    if (
+        _calendar_cache["key"] == cache_key and
+        _calendar_cache["timestamp"] and
+        (now - _calendar_cache["timestamp"]) < timedelta(seconds=30)
+    ):
+        return jsonify(_calendar_cache["data"])
+
     # 🔧 Normalizzazione formato ISO (rimuove timezone se presente)
     if start:
         start = start.split("+")[0].split(" ")[0].replace("Z", "")
@@ -358,19 +381,25 @@ def get_appuntamenti():
             titolo += f" (S{appo['numero_seduta']})"
 
         eventi.append({
-    "id": appo["id"],
-    "title": titolo,
-    "start": appo["start_datetime"],
-    "end": appo["end_datetime"],
-    "backgroundColor": colore,
-    "extendedProps": {
-        "clienti": nomi_clienti,
-        "clienti_ids": clienti_ids,
-        "servizio": nome_servizio,
-        "numero_seduta": appo.get("numero_seduta"),
-        "reminder_whatsapp": appo.get("reminder_whatsapp", False)
+            "id": appo["id"],
+            "title": titolo,
+            "start": appo["start_datetime"],
+            "end": appo["end_datetime"],
+            "backgroundColor": colore,
+            "extendedProps": {
+                "clienti": nomi_clienti,
+                "clienti_ids": clienti_ids,
+                "servizio": nome_servizio,
+                "numero_seduta": appo.get("numero_seduta"),
+                "reminder_whatsapp": appo.get("reminder_whatsapp", False)
+            }
+        })
+
+    _calendar_cache = {
+        "key": cache_key,
+        "timestamp": now,
+        "data": eventi
     }
-})
 
     return jsonify(eventi)
 
