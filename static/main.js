@@ -302,7 +302,7 @@ buttonText: {
                 info.el.style.backgroundColor = "#111827"; // quasi nero elegante
             }
 
-            if (servizio === "Ginnastica Posturale") {
+            if (servizio === "Ginnastica posturale / Personal Training") {
                 info.el.style.backgroundColor = "#1f2937"; // grigio antracite
             }
 
@@ -648,7 +648,7 @@ function salvaEvento() {
 function getColoreServizio(servizio) {
 
     if (servizio === "Massoterapia") return "#111827";
-    if (servizio === "Ginnastica Posturale") return "#1f2937";
+    if (servizio === "Ginnastica posturale / Personal Training") return "#1f2937";
     if (servizio === "Rieducazione Motoria") return "#374151";
     if (servizio === "Check") return "#4b5563";
     if (servizio === "Ginnastica Posturale di Coppia") return "#6b7280";
