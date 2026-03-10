@@ -37,7 +37,17 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ===============================
+# SIMPLE DASHBOARD CACHE
+# ===============================
+_dashboard_cache = {
+    "timestamp": None,
+    "pacchetti": 0,
+    "clienti": 0
+}
 
 # ===============================
 # LOGIN REQUIRED DECORATOR
@@ -59,6 +69,19 @@ def login_required(f):
 @login_required
 def index():
 
+    global _dashboard_cache
+    from datetime import timedelta
+
+    now = datetime.now()
+
+    # Se cache valida (<60 secondi), usa quella
+    if _dashboard_cache["timestamp"] and (now - _dashboard_cache["timestamp"]) < timedelta(seconds=60):
+        return render_template(
+            "index.html",
+            dashboard_pacchetti=_dashboard_cache["pacchetti"],
+            dashboard_clienti=_dashboard_cache["clienti"]
+        )
+
     # Conteggio pacchetti attivi
     pacchetti_attivi = supabase.table("pacchetti_cliente") \
         .select("id", count="exact") \
@@ -73,6 +96,13 @@ def index():
         .execute()
 
     totale_clienti = clienti_totali.count if clienti_totali.count else 0
+
+    # Salva in cache
+    _dashboard_cache = {
+        "timestamp": now,
+        "pacchetti": totale_pacchetti_attivi,
+        "clienti": totale_clienti
+    }
 
     return render_template(
         "index.html",
