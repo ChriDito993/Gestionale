@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string
+from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for
 from supabase import create_client
 from dotenv import load_dotenv
 from datetime import datetime
@@ -39,6 +39,19 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+@app.context_processor
+def inject_static_file_helper():
+    def static_file(filename):
+        file_path = os.path.join(app.static_folder, filename)
+        try:
+            version = int(os.path.getmtime(file_path))
+        except OSError:
+            version = 0
+        return url_for("static", filename=filename, v=version)
+
+    return {"static_file": static_file}
 
 # ===============================
 # SIMPLE DASHBOARD CACHE
@@ -155,8 +168,9 @@ def login():
     <html>
     <head>
         <meta charset=\"UTF-8\">
+        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
         <title>Login - Gestionale</title>
-        <link rel=\"stylesheet\" href=\"{{ url_for('static', filename='style.css') }}\">
+        <link rel=\"stylesheet\" href=\"{{ static_file('style.css') }}\">
     </head>
     <body style=\"display:flex;justify-content:center;align-items:center;height:100vh;background:linear-gradient(135deg,#f3f4f6,#e5e7eb);\">
         <div class=\"detail-card\" style=\"width:380px;\">

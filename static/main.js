@@ -5,19 +5,74 @@ let selectedEnd;
 let serviziData = [];
 let tuttiClienti = [];
 let clientiSelezionati = [];
+const MOBILE_BREAKPOINT = 900;
+const DEFAULT_APPOINTMENT_MINUTES = 60;
+
+function isMobileViewport() {
+    return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
+}
+
+function impostaSelezioneDaData(startDate) {
+    const start = new Date(startDate);
+    const end = new Date(start.getTime() + DEFAULT_APPOINTMENT_MINUTES * 60000);
+    selectedStart = start.toISOString();
+    selectedEnd = end.toISOString();
+}
+
+function calcolaStartDefaultPerMobile() {
+    const viewDate = calendar ? new Date(calendar.getDate()) : new Date();
+    const now = new Date();
+    const isToday = viewDate.toDateString() === now.toDateString();
+
+    const start = new Date(viewDate);
+    start.setHours(9, 0, 0, 0);
+
+    if (isToday && now > start) {
+        start.setHours(now.getHours(), now.getMinutes(), 0, 0);
+        const roundedMinutes = Math.ceil(start.getMinutes() / 15) * 15;
+        start.setMinutes(roundedMinutes, 0, 0);
+    }
+
+    if (start.getHours() >= 21) {
+        start.setHours(20, 0, 0, 0);
+    }
+
+    return start;
+}
+
+function creaFabMobile() {
+    if (!isMobileViewport() || document.getElementById("mobileAddFab")) return;
+
+    const fab = document.createElement("button");
+    fab.type = "button";
+    fab.id = "mobileAddFab";
+    fab.className = "mobile-add-fab";
+    fab.setAttribute("aria-label", "Nuovo appuntamento");
+    fab.textContent = "+";
+
+    fab.addEventListener("click", function() {
+        impostaSelezioneDaData(calcolaStartDefaultPerMobile());
+        apriModal();
+    });
+
+    document.body.appendChild(fab);
+}
 
 document.addEventListener('DOMContentLoaded', function () {
 
     var calendarEl = document.getElementById('calendar');
+    const mobileMode = isMobileViewport();
+
+    document.body.classList.toggle("mobile-calendar-mode", mobileMode);
 
     calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: 'timeGridWeek',
+        initialView: mobileMode ? 'timeGridDay' : 'timeGridWeek',
 firstDay: 1,   // Settimana che parte da Lunedì
 
 headerToolbar: {
-    left: 'prev,next today',
+    left: mobileMode ? 'prev,next today' : 'prev,next today',
     center: 'title',
-    right: 'timeGridWeek,timeGridDay'
+    right: mobileMode ? '' : 'timeGridWeek,timeGridDay'
 },
 
 buttonText: {
@@ -25,6 +80,9 @@ buttonText: {
     week: 'Settimana',
     day: 'Giorno'
 },
+        dayHeaderFormat: mobileMode
+            ? { weekday: 'short', day: '2-digit', month: '2-digit' }
+            : { weekday: 'short', day: 'numeric', month: 'numeric' },
         height: 'auto',
         contentHeight: 'auto',
         expandRows: true,
@@ -36,7 +94,12 @@ buttonText: {
         locale: 'it',
         selectable: true,
         selectMirror: true, // mostra anteprima evento mentre trascini (stile Apple Calendar)
-        editable: true,
+        editable: !mobileMode,
+        eventStartEditable: !mobileMode,
+        eventDurationEditable: !mobileMode,
+        longPressDelay: mobileMode ? 120 : 300,
+        eventLongPressDelay: mobileMode ? 120 : 300,
+        selectLongPressDelay: mobileMode ? 120 : 300,
         slotEventOverlap: true, // permette agli eventi di sovrapporsi
         // Visual grid every 30 minutes, but allow dragging/creating every 15 minutes
         slotDuration: "00:30:00",   // linee calendario
@@ -87,7 +150,17 @@ buttonText: {
             apriModal();
         },
 
+        dateClick: function(info) {
+            if (!mobileMode) return;
+            impostaSelezioneDaData(info.date);
+            apriModal();
+        },
+
         eventClick: function(info) {
+            if (mobileMode) {
+                info.jsEvent?.preventDefault?.();
+                return;
+            }
             window.eventoSelezionato = info.event;
             apriModificaModal();
         },
@@ -303,7 +376,7 @@ buttonText: {
     const params = new URLSearchParams(window.location.search);
     const openEventId = params.get("open_event");
 
-    if (openEventId) {
+    if (openEventId && !mobileMode) {
         calendar.on('eventsSet', function() {
             const eventToOpen = calendar.getEventById(openEventId);
 
@@ -316,6 +389,9 @@ buttonText: {
                 window.history.replaceState({}, document.title, cleanUrl);
             }
         });
+    } else if (openEventId && mobileMode) {
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
     }
 
     caricaClienti(); // ora carica array per ricerca
@@ -372,54 +448,8 @@ buttonText: {
         });
     }
 
-    // ===============================
-    // OTTIMIZZAZIONE MOBILE iPHONE
-    // ===============================
-    if (window.innerWidth < 768) {
-
-        // Migliora leggibilità eventi e bottoni
-        const style = document.createElement("style");
-        style.innerHTML = `
-            .fc-event {
-                font-size: 14px !important;
-                padding: 4px !important;
-            }
-
-            .fc-toolbar-title {
-                font-size: 18px !important;
-            }
-
-            .fc-button {
-                padding: 8px 12px !important;
-                font-size: 14px !important;
-            }
-        `;
-        document.head.appendChild(style);
-
-        // Bottone flottante "+"
-        const fab = document.createElement("div");
-        fab.innerHTML = "+";
-        fab.style.position = "fixed";
-        fab.style.bottom = "20px";
-        fab.style.right = "20px";
-        fab.style.width = "65px";
-        fab.style.height = "65px";
-        fab.style.borderRadius = "50%";
-        fab.style.background = "#2563eb";
-        fab.style.color = "white";
-        fab.style.display = "flex";
-        fab.style.alignItems = "center";
-        fab.style.justifyContent = "center";
-        fab.style.fontSize = "32px";
-        fab.style.boxShadow = "0 8px 20px rgba(0,0,0,0.25)";
-        fab.style.zIndex = "9999";
-        fab.style.cursor = "pointer";
-
-        fab.onclick = function() {
-            apriModal();
-        };
-
-        document.body.appendChild(fab);
+    if (mobileMode) {
+        creaFabMobile();
     }
 
 });
@@ -1173,4 +1203,3 @@ function toggleStorico() {
         btn.textContent = "Mostra storico";
     }
 }
-

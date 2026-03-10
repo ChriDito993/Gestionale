@@ -1565,3 +1565,192 @@ select {
     display: block;
     opacity: 0.9;
 }
+
+/* ========================= */
+/* MOBILE CALENDAR MODE */
+/* ========================= */
+
+.mobile-calendar-hint {
+    display: none;
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    color: #374151;
+    background: rgba(42,157,143,0.12);
+    border: 1px solid rgba(42,157,143,0.24);
+}
+
+.mobile-add-fab {
+    display: none;
+    position: fixed;
+    right: 18px;
+    bottom: 20px;
+    width: 60px;
+    height: 60px;
+    border: none;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #111827, #1f2937);
+    color: #ffffff;
+    font-size: 34px;
+    line-height: 1;
+    box-shadow: 0 16px 32px rgba(15,23,42,0.35);
+    z-index: 3000;
+    cursor: pointer;
+}
+
+.mobile-add-fab:active {
+    transform: scale(0.96);
+}
+
+@media (max-width: 900px) {
+    body.mobile-calendar-mode .app-container {
+        padding: 14px 14px 96px;
+    }
+
+    body.mobile-calendar-mode .app-header {
+        padding: 16px;
+        border-radius: 16px;
+        margin-bottom: 14px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    body.mobile-calendar-mode .header-left {
+        gap: 10px;
+    }
+
+    body.mobile-calendar-mode .app-logo {
+        height: 50px !important;
+    }
+
+    body.mobile-calendar-mode .title-container h1 {
+        font-size: 16px;
+        line-height: 1.3;
+    }
+
+    body.mobile-calendar-mode .title-container .subtitle {
+        font-size: 11px;
+    }
+
+    body.mobile-calendar-mode .header-right {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    body.mobile-calendar-mode .header-right .btn-primary,
+    body.mobile-calendar-mode .header-right button.btn-primary {
+        width: 100%;
+        padding: 10px 12px;
+        font-size: 13px;
+        text-align: center;
+        border-radius: 10px;
+    }
+
+    body.mobile-calendar-mode .dashboard-mini {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+
+    body.mobile-calendar-mode .dashboard-card {
+        border-radius: 16px;
+        padding: 14px 12px;
+        box-shadow: 0 14px 28px rgba(15,23,42,0.08);
+    }
+
+    body.mobile-calendar-mode .dashboard-label {
+        font-size: 10px;
+        margin-bottom: 6px;
+        letter-spacing: 0.6px;
+    }
+
+    body.mobile-calendar-mode .dashboard-value {
+        font-size: 24px;
+    }
+
+    body.mobile-calendar-mode .calendar-wrapper {
+        padding: 10px;
+        border-radius: 16px;
+    }
+
+    body.mobile-calendar-mode .mobile-calendar-hint {
+        display: block;
+    }
+
+    body.mobile-calendar-mode .fc .fc-toolbar.fc-header-toolbar {
+        margin-bottom: 8px;
+    }
+
+    body.mobile-calendar-mode .fc .fc-toolbar {
+        align-items: center;
+        gap: 8px;
+    }
+
+    body.mobile-calendar-mode .fc .fc-toolbar-title {
+        font-size: 16px !important;
+    }
+
+    body.mobile-calendar-mode .fc .fc-toolbar .fc-button {
+        padding: 6px 9px !important;
+        font-size: 12px !important;
+        border-radius: 10px !important;
+    }
+
+    body.mobile-calendar-mode .fc-timegrid-axis {
+        width: 58px;
+        font-size: 11px;
+    }
+
+    body.mobile-calendar-mode .fc-timegrid-slot {
+        height: 44px !important;
+    }
+
+    body.mobile-calendar-mode .fc-event {
+        min-height: 42px !important;
+        padding: 6px 8px !important;
+        border-radius: 10px !important;
+        font-size: 0.8rem;
+    }
+
+    body.mobile-calendar-mode .fc-event-title {
+        font-size: 0.78rem !important;
+    }
+
+    body.mobile-calendar-mode .fc-event-service {
+        font-size: 0.7rem !important;
+    }
+
+    body.mobile-calendar-mode .modal-content {
+        width: min(94vw, 480px);
+        padding: 24px 18px;
+        margin: 12vh auto;
+        border-radius: 18px;
+    }
+
+    body.mobile-calendar-mode .close {
+        right: 18px;
+        top: 16px;
+    }
+
+    body.mobile-calendar-mode .mobile-add-fab {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 640px) {
+    body.mobile-calendar-mode .header-right {
+        grid-template-columns: 1fr;
+    }
+
+    body.mobile-calendar-mode .dashboard-mini {
+        grid-template-columns: 1fr 1fr;
+    }
+}
