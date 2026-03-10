@@ -595,12 +595,14 @@ def pacchetti_dashboard():
 @login_required
 def appuntamenti_oggi():
 
-    today = datetime.now().date()
-    start_day = today.isoformat()
-    end_day = datetime.combine(today, datetime.max.time()).isoformat()
+    from datetime import time
+
+    now_dt = datetime.now()
+    start_day = datetime.combine(now_dt.date(), time.min).isoformat()
+    end_day = datetime.combine(now_dt.date(), time.max).isoformat()
 
     response = supabase.table("appuntamenti") \
-        .select("id", count="planned") \
+        .select("id", count="exact") \
         .gte("start_datetime", start_day) \
         .lte("start_datetime", end_day) \
         .execute()
@@ -609,7 +611,7 @@ def appuntamenti_oggi():
 
     return jsonify({
         "totale": totale,
-        "data": start_day
+        "data": now_dt.date().isoformat()
     })
 
 
