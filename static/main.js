@@ -15,8 +15,8 @@ function isMobileViewport() {
 function impostaSelezioneDaData(startDate) {
     const start = new Date(startDate);
     const end = new Date(start.getTime() + DEFAULT_APPOINTMENT_MINUTES * 60000);
-    selectedStart = start.toISOString();
-    selectedEnd = end.toISOString();
+    selectedStart = formatDateTimeForApi(start);
+    selectedEnd = formatDateTimeForApi(end);
 }
 
 function calcolaStartDefaultPerMobile() {
@@ -69,6 +69,10 @@ function formatTimeForInput(date) {
     const hours = String(date.getHours()).padStart(2, "0");
     const minutes = String(date.getMinutes()).padStart(2, "0");
     return `${hours}:${minutes}`;
+}
+
+function formatDateTimeForApi(date) {
+    return `${formatDateForInput(date)}T${formatTimeForInput(date)}:00`;
 }
 
 function sincronizzaCampiDataOraNuovoEvento() {
@@ -171,7 +175,9 @@ buttonText: {
         ],
 
         events: function(fetchInfo, successCallback, failureCallback) {
-            fetch(`/api/appuntamenti?start=${fetchInfo.startStr}&end=${fetchInfo.endStr}`)
+            fetch(`/api/appuntamenti?start=${fetchInfo.startStr}&end=${fetchInfo.endStr}`, {
+                cache: "no-store"
+            })
                 .then(r => r.json())
                 .then(successCallback)
                 .catch(error => {
@@ -184,14 +190,14 @@ buttonText: {
         selectAllow: () => true,
 
         select: function(info) {
-            selectedStart = info.startStr;
+            selectedStart = formatDateTimeForApi(info.start);
 
             // Se selezione troppo breve o click singolo → default 60 minuti
             if (!info.end || info.start.getTime() === info.end.getTime()) {
                 const endDefault = new Date(info.start.getTime() + 60 * 60000);
-                selectedEnd = endDefault.toISOString();
+                selectedEnd = formatDateTimeForApi(endDefault);
             } else {
-                selectedEnd = info.endStr;
+                selectedEnd = formatDateTimeForApi(info.end);
             }
 
             apriModal();
@@ -531,14 +537,14 @@ function caricaPacchettiCliente(clienteId) {
 
 function aggiornaOrario(evento) {
     const endISO = evento.end
-        ? evento.end.toISOString()
-        : new Date(evento.start.getTime() + 60 * 60000).toISOString();
+        ? formatDateTimeForApi(evento.end)
+        : formatDateTimeForApi(new Date(evento.start.getTime() + 60 * 60000));
 
     fetch('/api/appuntamenti/' + evento.id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            start_datetime: evento.start.toISOString(),
+            start_datetime: formatDateTimeForApi(evento.start),
             end_datetime: endISO
         })
     }).then(() => {
@@ -595,8 +601,8 @@ function salvaEvento() {
         return;
     }
 
-    selectedStart = startLocal.toISOString();
-    selectedEnd = endLocal.toISOString();
+    selectedStart = formatDateTimeForApi(startLocal);
+    selectedEnd = formatDateTimeForApi(endLocal);
 
     if (clientiSelezionati.length === 0 || !servizioId) {
         mostraToast("Seleziona almeno un cliente e un servizio", "warning");
@@ -759,7 +765,7 @@ function apriModificaModal() {
     const start = window.eventoSelezionato.start;
     const end = window.eventoSelezionato.end;
 
-    const data = start.toISOString().split("T")[0];
+    const data = formatDateForInput(start);
     const oraInizio = start.toTimeString().slice(0,5);
     const oraFine = end.toTimeString().slice(0,5);
 

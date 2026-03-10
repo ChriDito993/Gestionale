@@ -1,4 +1,5 @@
 import os
+import re
 from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for
 from supabase import create_client
 from dotenv import load_dotenv
@@ -78,6 +79,29 @@ _calendar_cache = {
     "timestamp": None,
     "data": []
 }
+
+
+def invalidate_calendar_cache():
+    global _calendar_cache
+    _calendar_cache = {
+        "key": None,
+        "timestamp": None,
+        "data": []
+    }
+
+
+def normalize_datetime_local(value):
+    if not value or not isinstance(value, str):
+        return value
+
+    normalized = value.strip().replace("Z", "")
+    normalized = re.sub(r"([+-]\d{2}:\d{2})$", "", normalized)
+
+    try:
+        dt = datetime.fromisoformat(normalized)
+        return dt.replace(microsecond=0).isoformat()
+    except ValueError:
+        return normalized
 
 # ===============================
 # LOGIN REQUIRED DECORATOR
@@ -421,7 +445,9 @@ def get_appuntamenti():
 @login_required
 def crea_appuntamento():
 
-    data = request.json
+    data = request.json or {}
+    start_datetime = normalize_datetime_local(data.get("start_datetime"))
+    end_datetime = normalize_datetime_local(data.get("end_datetime"))
 
     clienti_ids = data.get("clienti_ids") or []
     cliente_id_singolo = data.get("cliente_id")
@@ -480,8 +506,8 @@ def crea_appuntamento():
     nuovo_appuntamento = supabase.table("appuntamenti").insert({
         "cliente_id": cliente_principale,  # manteniamo per compatibilità
         "servizio_id": data["servizio_id"],
-        "start_datetime": data["start_datetime"],
-        "end_datetime": data["end_datetime"],
+        "start_datetime": start_datetime,
+        "end_datetime": end_datetime,
         "pacchetto_cliente_id": pacchetto_id,
         "numero_seduta": numero_seduta,
         "scalato": bool(pacchetto_id)
@@ -533,6 +559,7 @@ def crea_appuntamento():
 
     # 🔹 Risposta finale API
     if nuovo_appuntamento.data:
+        invalidate_calendar_cache()
         return jsonify({
             "success": True,
             "numero_seduta": numero_seduta
@@ -544,10 +571,17 @@ def crea_appuntamento():
 @login_required
 def aggiorna_appuntamento(id):
     data = request.json
+    payload = dict(data or {})
+    if "start_datetime" in payload:
+        payload["start_datetime"] = normalize_datetime_local(payload.get("start_datetime"))
+    if "end_datetime" in payload:
+        payload["end_datetime"] = normalize_datetime_local(payload.get("end_datetime"))
+
     response = supabase.table("appuntamenti") \
-        .update(data) \
+        .update(payload) \
         .eq("id", id) \
         .execute()
+    invalidate_calendar_cache()
     return jsonify(response.data)
 
 
@@ -582,6 +616,7 @@ def elimina_appuntamento(id):
         .eq("id", id) \
         .execute()
 
+    invalidate_calendar_cache()
     return jsonify({"success": True})
 
 
@@ -601,6 +636,7 @@ def set_reminder_whatsapp(app_id):
     if not response.data:
         return jsonify({"error": "Appuntamento non trovato"}), 404
 
+    invalidate_calendar_cache()
     return jsonify({"success": True})
 
 
