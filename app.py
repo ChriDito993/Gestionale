@@ -50,6 +50,14 @@ _dashboard_cache = {
 }
 
 # ===============================
+# SIMPLE PACCHETTI DASHBOARD CACHE
+# ===============================
+_pacchetti_dashboard_cache = {
+    "timestamp": None,
+    "data": []
+}
+
+# ===============================
 # LOGIN REQUIRED DECORATOR
 # ===============================
 
@@ -591,6 +599,15 @@ def get_pacchetti_attivi(cliente_id):
 @login_required
 def pacchetti_dashboard():
 
+    global _pacchetti_dashboard_cache
+    from datetime import timedelta
+
+    now = datetime.now()
+
+    # Usa cache se valida (60 secondi)
+    if _pacchetti_dashboard_cache["timestamp"] and (now - _pacchetti_dashboard_cache["timestamp"]) < timedelta(seconds=60):
+        return jsonify(_pacchetti_dashboard_cache["data"])
+
     pacchetti = supabase.table("pacchetti_cliente") \
         .select("id,sedute_effettuate,clienti(nome,cognome),tipi_pacchetto(nome,numero_sedute)") \
         .eq("stato", "attivo") \
@@ -614,6 +631,11 @@ def pacchetti_dashboard():
             "nome_pacchetto": pac["tipi_pacchetto"]["nome"],
             "sedute_rimanenti": rimanenti
         })
+
+    _pacchetti_dashboard_cache = {
+        "timestamp": now,
+        "data": risultati
+    }
 
     return jsonify(risultati)
 
