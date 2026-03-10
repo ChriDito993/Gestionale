@@ -7,6 +7,13 @@ let tuttiClienti = [];
 let clientiSelezionati = [];
 const MOBILE_BREAKPOINT = 900;
 const DEFAULT_APPOINTMENT_MINUTES = 60;
+const SERVIZIO_COLORI = {
+    "massoterapia": "#0f766e",
+    "ginnastica posturale / personal training": "#1f2937",
+    "rieducazione motoria": "#2a9d8f",
+    "check": "#475569",
+    "ginnastica posturale di coppia": "#2f5d56"
+};
 
 function isMobileViewport() {
     return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
@@ -296,27 +303,9 @@ buttonText: {
             const servizio = info.event.extendedProps?.servizio;
              if (!servizio) return;
 
-            // 🎨 APPLE MINIMAL GREY PALETTE
-
-            if (servizio === "Massoterapia") {
-                info.el.style.backgroundColor = "#111827"; // quasi nero elegante
-            }
-
-            if (servizio === "Ginnastica posturale / Personal Training") {
-                info.el.style.backgroundColor = "#1f2937"; // grigio antracite
-            }
-
-            if (servizio === "Rieducazione Motoria") {
-                info.el.style.backgroundColor = "#374151"; // grigio medio scuro
-            }
-
-            if (servizio === "Check") {
-                info.el.style.backgroundColor = "#4b5563"; // grigio medio
-            }
-
-            if (servizio === "Ginnastica Posturale di Coppia") {
-                info.el.style.backgroundColor = "#6b7280"; // grigio soft chiaro
-            }
+            const coloreServizio = getColoreServizio(servizio);
+            info.el.style.backgroundColor = coloreServizio;
+            info.el.style.borderColor = "rgba(255,255,255,0.22)";
 
             // Testo sempre bianco per contrasto
             info.el.style.color = "#ffffff";
@@ -646,14 +635,8 @@ function salvaEvento() {
 =================================*/
 
 function getColoreServizio(servizio) {
-
-    if (servizio === "Massoterapia") return "#111827";
-    if (servizio === "Ginnastica posturale / Personal Training") return "#1f2937";
-    if (servizio === "Rieducazione Motoria") return "#374151";
-    if (servizio === "Check") return "#4b5563";
-    if (servizio === "Ginnastica Posturale di Coppia") return "#6b7280";
-
-    return "#111827";
+    const key = (servizio || "").toString().trim().toLowerCase();
+    return SERVIZIO_COLORI[key] || "#111827";
 }
 
 function apriModificaModal() {
