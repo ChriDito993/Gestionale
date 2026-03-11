@@ -154,6 +154,52 @@ function setButtonLoading(button, loading, options = {}) {
     }
 }
 
+async function parseJsonSafely(response) {
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.includes("application/json")) return null;
+    try {
+        return await response.json();
+    } catch (_error) {
+        return null;
+    }
+}
+
+function getApiErrorMessage(payload, fallbackMessage) {
+    if (!payload || typeof payload !== "object") return fallbackMessage;
+
+    const candidate = payload.error || payload.message || payload.detail;
+    if (!candidate || typeof candidate !== "string") return fallbackMessage;
+
+    const requestId = payload.request_id;
+    if (requestId && typeof requestId === "string") {
+        return `${candidate} (ID: ${requestId})`;
+    }
+
+    return candidate;
+}
+
+async function fetchJsonOrThrow(url, options = {}, fallbackMessage = "Operazione non riuscita") {
+    let response;
+    try {
+        response = await fetch(url, options);
+    } catch (networkError) {
+        const error = new Error("Errore di rete. Controlla la connessione e riprova.");
+        error.cause = networkError;
+        throw error;
+    }
+
+    const payload = await parseJsonSafely(response);
+
+    if (!response.ok) {
+        const error = new Error(getApiErrorMessage(payload, fallbackMessage));
+        error.status = response.status;
+        error.payload = payload;
+        throw error;
+    }
+
+    return payload;
+}
+
 function buildAppuntamentiUrl(fetchInfo) {
     const params = new URLSearchParams({
         start: fetchInfo.startStr,
@@ -359,8 +405,8 @@ buttonText: {
             apriModificaModal();
         },
 
-        eventDrop: info => aggiornaOrario(info.event),
-        eventResize: info => aggiornaOrario(info.event),
+        eventDrop: info => aggiornaOrario(info),
+        eventResize: info => aggiornaOrario(info),
 
         eventContent: function(arg) {
             // Handle preview while dragging (mirror event)
@@ -590,7 +636,10 @@ buttonText: {
             pacchettiModal.style.display = "block";
 
             fetch("/api/pacchetti_dashboard")
-                .then(res => res.json())
+                .then(res => {
+                    if (!res.ok) throw new Error("Errore caricamento pacchetti attivi");
+                    return res.json();
+                })
                 .then(data => {
 
                     pacchettiList.innerHTML = "";
@@ -615,6 +664,11 @@ buttonText: {
                         `;
                         pacchettiList.appendChild(card);
                     });
+                })
+                .catch(error => {
+                    console.error("Errore pacchetti dashboard:", error);
+                    pacchettiList.innerHTML = "<div style='opacity:0.6;'>Errore caricamento dati</div>";
+                    mostraToast("Errore nel caricamento pacchetti attivi", "error");
                 });
         });
     }
@@ -659,23 +713,38 @@ function caricaPacchettiCliente(clienteId) {
    AGGIORNA ORARIO (DRAG & RESIZE)
 =================================*/
 
-function aggiornaOrario(evento) {
+async function aggiornaOrario(infoOrEvent) {
+    const info = infoOrEvent && infoOrEvent.event
+        ? infoOrEvent
+        : { event: infoOrEvent, revert: null };
+    const evento = info.event;
+
+    if (!evento) return;
+
     const endISO = evento.end
         ? formatDateTimeForApi(evento.end)
         : formatDateTimeForApi(new Date(evento.start.getTime() + 60 * 60000));
 
-    fetch('/api/appuntamenti/' + evento.id, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            start_datetime: formatDateTimeForApi(evento.start),
-            end_datetime: endISO
-        })
-    }).then(() => {
+    try {
+        await fetchJsonOrThrow('/api/appuntamenti/' + evento.id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                start_datetime: formatDateTimeForApi(evento.start),
+                end_datetime: endISO
+            })
+        }, "Errore aggiornamento orario appuntamento");
+
         // aggiorna solo l'evento senza ricaricare tutto il calendario
         const ev = calendar.getEventById(evento.id);
         if (ev) ev.setDates(evento.start, evento.end);
-    });
+    } catch (error) {
+        console.error("Errore aggiorna orario:", error);
+        if (typeof info.revert === "function") {
+            info.revert();
+        }
+        mostraToast(error.message || "Errore aggiornamento orario", "error");
+    }
 }
 
 
@@ -739,7 +808,7 @@ async function salvaEvento() {
     setButtonLoading(salvaBtn, true, { label: "Salvataggio..." });
 
     try {
-        const response = await fetch('/api/appuntamenti', {
+        await fetchJsonOrThrow('/api/appuntamenti', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -751,21 +820,16 @@ async function salvaEvento() {
                 note: "",
                 durata_minuti: Math.round((new Date(selectedEnd) - new Date(selectedStart)) / 60000)
             })
-        })
+        }, "Errore nel salvataggio appuntamento");
 
-        if (!response.ok) {
-            throw new Error("Errore nel salvataggio");
-        }
-
-        await response.json();
         chiudiModal();
         calendar.refetchEvents();
         clientiSelezionati = [];
         aggiornaClientiSelezionati();
-        mostraToast("Appuntamento creato con successo", "success");
+        mostraToast("Appuntamento creato con successo.", "success");
     } catch (error) {
         console.error("Errore:", error);
-        mostraToast("Errore nel creare appuntamento", "error");
+        mostraToast(error.message || "Errore nel creare appuntamento", "error");
     } finally {
         setButtonLoading(salvaBtn, false);
     }
@@ -1030,25 +1094,21 @@ async function salvaModifiche() {
     setButtonLoading(salvaBtn, true, { label: "Salvataggio..." });
 
     try {
-        const response = await fetch('/api/appuntamenti/' + window.eventoSelezionato.id, {
+        await fetchJsonOrThrow('/api/appuntamenti/' + window.eventoSelezionato.id, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 start_datetime: start_datetime,
                 end_datetime: end_datetime
             })
-        })
-
-        if (!response.ok) {
-            throw new Error("Errore aggiornamento appuntamento");
-        }
+        }, "Errore nel salvataggio modifiche");
 
         chiudiModificaModal();
         calendar.refetchEvents();
-        mostraToast("Appuntamento aggiornato", "success");
+        mostraToast("Appuntamento aggiornato con successo.", "success");
     } catch (error) {
         console.error("Errore aggiorna appuntamento:", error);
-        mostraToast("Errore nel salvataggio modifiche", "error");
+        mostraToast(error.message || "Errore nel salvataggio modifiche", "error");
     } finally {
         setButtonLoading(salvaBtn, false);
     }
@@ -1069,20 +1129,16 @@ async function eliminaEvento() {
     setButtonLoading(deleteBtn, true, { replaceContent: false });
 
     try {
-        const response = await fetch('/api/appuntamenti/' + window.eventoSelezionato.id, {
+        await fetchJsonOrThrow('/api/appuntamenti/' + window.eventoSelezionato.id, {
             method: 'DELETE'
-        });
-
-        if (!response.ok) {
-            throw new Error("Errore eliminazione appuntamento");
-        }
+        }, "Errore durante eliminazione appuntamento");
 
         chiudiModificaModal();
         calendar.refetchEvents();
-        mostraToast("Appuntamento eliminato", "success");
+        mostraToast("Appuntamento eliminato con successo.", "success");
     } catch (error) {
         console.error("Errore elimina appuntamento:", error);
-        mostraToast("Errore durante eliminazione", "error");
+        mostraToast(error.message || "Errore durante eliminazione", "error");
     } finally {
         setButtonLoading(deleteBtn, false, { replaceContent: false });
     }
@@ -1340,23 +1396,45 @@ function chiudiModalCliente() {
     document.getElementById("clienteModal").style.display = "none";
 }
 
-function salvaCliente() {
-    fetch("/api/clienti", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            nome: document.getElementById("nomeCliente").value,
-            cognome: document.getElementById("cognomeCliente").value,
-            telefono: document.getElementById("telefonoCliente").value,
-            email: document.getElementById("emailCliente").value,
-            note_cliniche: document.getElementById("noteClinicheCliente").value
-        })
-    })
-    .then(res => res.json())
-    .then(() => {
+async function salvaCliente() {
+    const nome = document.getElementById("nomeCliente").value.trim();
+    const cognome = document.getElementById("cognomeCliente").value.trim();
+    const telefono = document.getElementById("telefonoCliente").value.trim();
+    const email = document.getElementById("emailCliente").value.trim();
+    const noteCliniche = document.getElementById("noteClinicheCliente").value;
+
+    if (!nome || !cognome) {
+        mostraToast("Nome e cognome sono obbligatori", "warning");
+        return;
+    }
+
+    const salvaBtn = document.querySelector("#clienteModal .btn-apple-primary");
+    if (salvaBtn?.disabled) return;
+
+    setButtonLoading(salvaBtn, true, { label: "Salvataggio..." });
+
+    try {
+        await fetchJsonOrThrow("/api/clienti", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                nome,
+                cognome,
+                telefono,
+                email,
+                note_cliniche: noteCliniche
+            })
+        }, "Errore creazione cliente");
+
+        mostraToast("Cliente creato con successo.", "success");
         chiudiModalCliente();
-        location.reload();
-    });
+        setTimeout(() => location.reload(), 250);
+    } catch (error) {
+        console.error("Errore creazione cliente:", error);
+        mostraToast(error.message || "Errore creazione cliente", "error");
+    } finally {
+        setButtonLoading(salvaBtn, false);
+    }
 }
 
 /* ===============================
