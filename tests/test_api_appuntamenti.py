@@ -405,3 +405,28 @@ def test_api_unhandled_error_returns_request_id(authed_client, monkeypatch):
     assert body["error"] == "Errore interno del server"
     assert body["request_id"]
     assert response.headers.get("X-Request-ID") == body["request_id"]
+
+
+def test_promemoria_route_requires_login(unauth_client):
+    client = unauth_client
+    response = client.get("/cliente/123/promemoria")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/login")
+
+
+def test_update_stato_updates_appointment_and_redirects(authed_client):
+    client, fake_supabase = authed_client
+    fake_supabase.appuntamenti["42"] = {"id": "42", "stato": "prenotato"}
+
+    response = client.post(
+        "/update_stato",
+        data={
+            "appuntamento_id": "42",
+            "stato": "completato",
+        },
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/")
+    assert fake_supabase.appuntamenti["42"]["stato"] == "completato"

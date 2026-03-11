@@ -1147,6 +1147,7 @@ def aggiorna_note(cliente_id):
 # ===============================
 
 @app.route("/cliente/<cliente_id>/promemoria")
+@login_required
 def genera_promemoria(cliente_id):
 
     cliente = supabase.table("clienti") \
@@ -1211,7 +1212,36 @@ def genera_promemoria(cliente_id):
 @app.route("/update_stato", methods=["POST"])
 @login_required
 def update_stato():
-    return redirect(request.referrer)
+    appuntamento_id = (request.form.get("appuntamento_id") or "").strip()
+    stato = (request.form.get("stato") or "").strip()
+    allowed_stati = {"prenotato", "completato", "annullato", "svolto", "no_show"}
+
+    if not appuntamento_id or not stato:
+        app.logger.warning(
+            "update_stato payload incompleto appuntamento_id=%s stato=%s",
+            appuntamento_id,
+            stato
+        )
+        return redirect(request.referrer or "/")
+
+    if stato not in allowed_stati:
+        app.logger.warning(
+            "update_stato stato non valido appuntamento_id=%s stato=%s",
+            appuntamento_id,
+            stato
+        )
+        return redirect(request.referrer or "/")
+
+    response = supabase.table("appuntamenti") \
+        .update({"stato": stato}) \
+        .eq("id", appuntamento_id) \
+        .execute()
+
+    if not response.data:
+        app.logger.warning("update_stato appuntamento non trovato id=%s", appuntamento_id)
+
+    invalidate_calendar_cache()
+    return redirect(request.referrer or "/")
 
 @app.route("/chiudi_pacchetto/<pacchetto_id>", methods=["POST"])
 @login_required
