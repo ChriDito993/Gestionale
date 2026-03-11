@@ -45,6 +45,14 @@ class FakeQuery:
         self.filters.append(("eq", column, value))
         return self
 
+    def gte(self, column, value):
+        self.filters.append(("gte", column, value))
+        return self
+
+    def lt(self, column, value):
+        self.filters.append(("lt", column, value))
+        return self
+
     def limit(self, value):
         self._limit = value
         return self
@@ -76,9 +84,19 @@ class FakeQuery:
         for row in rows:
             include = True
             for operator, column, value in self.filters:
-                if operator == "eq" and str(row.get(column)) != str(value):
-                    include = False
-                    break
+                row_value = row.get(column)
+                if operator == "eq":
+                    if str(row_value) != str(value):
+                        include = False
+                        break
+                elif operator == "gte":
+                    if row_value is None or str(row_value) < str(value):
+                        include = False
+                        break
+                elif operator == "lt":
+                    if row_value is None or str(row_value) >= str(value):
+                        include = False
+                        break
             if include:
                 filtered.append(row)
         return filtered
@@ -161,11 +179,22 @@ def authed_client(monkeypatch):
     fake_supabase = FakeSupabase()
     monkeypatch.setattr(app_module, "supabase", fake_supabase)
     app_module.app.config.update(TESTING=True)
+    app_module._calendar_cache = {"key": None, "timestamp": None, "data": []}
 
     with app_module.app.test_client() as client:
         with client.session_transaction() as session:
             session["logged_in"] = True
         yield client, fake_supabase
+
+
+@pytest.fixture
+def unauth_client(monkeypatch):
+    fake_supabase = FakeSupabase()
+    monkeypatch.setattr(app_module, "supabase", fake_supabase)
+    app_module.app.config.update(TESTING=True)
+    app_module._calendar_cache = {"key": None, "timestamp": None, "data": []}
+    with app_module.app.test_client() as client:
+        yield client
 
 
 def test_post_appuntamenti_creates_record_and_links_clients(authed_client):
@@ -192,6 +221,27 @@ def test_post_appuntamenti_creates_record_and_links_clients(authed_client):
     assert len(fake_supabase.appuntamenti_clienti) == 2
 
 
+def test_post_appuntamenti_supports_legacy_cliente_id_field(authed_client):
+    client, fake_supabase = authed_client
+
+    response = client.post(
+        "/api/appuntamenti",
+        json={
+            "servizio_id": 3,
+            "start_datetime": "2026-03-11T09:00:00",
+            "end_datetime": "2026-03-11T10:00:00",
+            "cliente_id": 999,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["success"] is True
+    assert fake_supabase.appuntamenti["1"]["cliente_id"] == 999
+    assert fake_supabase.appuntamenti_clienti == [
+        {"appuntamento_id": "1", "cliente_id": 999}
+    ]
+
+
 def test_post_appuntamenti_requires_at_least_one_cliente(authed_client):
     client, fake_supabase = authed_client
 
@@ -207,6 +257,25 @@ def test_post_appuntamenti_requires_at_least_one_cliente(authed_client):
     assert response.status_code == 400
     assert "Nessun cliente selezionato" in response.get_json()["error"]
     assert fake_supabase.appuntamenti == {}
+
+
+@pytest.mark.parametrize(
+    "method,path,payload",
+    [
+        ("post", "/api/appuntamenti", {"servizio_id": 1}),
+        ("put", "/api/appuntamenti/42", {"stato": "confermato"}),
+        ("delete", "/api/appuntamenti/42", None),
+    ],
+)
+def test_critical_api_requires_login(unauth_client, method, path, payload):
+    client = unauth_client
+    if payload is None:
+        response = getattr(client, method)(path)
+    else:
+        response = getattr(client, method)(path, json=payload)
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/login")
 
 
 def test_put_appuntamenti_updates_payload(authed_client):
@@ -232,6 +301,18 @@ def test_put_appuntamenti_updates_payload(authed_client):
     assert fake_supabase.appuntamenti["55"]["start_datetime"] == "2026-03-12T09:30:00"
 
 
+def test_put_appuntamenti_non_existing_returns_empty_array(authed_client):
+    client, _fake_supabase = authed_client
+
+    response = client.put(
+        "/api/appuntamenti/404",
+        json={"stato": "annullato"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == []
+
+
 def test_delete_appuntamenti_removes_record(authed_client):
     client, fake_supabase = authed_client
     fake_supabase.appuntamenti["77"] = {
@@ -245,3 +326,53 @@ def test_delete_appuntamenti_removes_record(authed_client):
     assert response.status_code == 200
     assert response.get_json()["success"] is True
     assert "77" not in fake_supabase.appuntamenti
+
+
+def test_delete_appuntamento_with_scaled_package_decrements_sessions(authed_client):
+    client, fake_supabase = authed_client
+    fake_supabase.appuntamenti["88"] = {
+        "id": "88",
+        "pacchetto_cliente_id": "500",
+        "scalato": True,
+    }
+    fake_supabase.pacchetti_cliente["500"] = {
+        "id": "500",
+        "sedute_effettuate": 4,
+    }
+
+    response = client.delete("/api/appuntamenti/88")
+
+    assert response.status_code == 200
+    assert response.get_json()["success"] is True
+    assert fake_supabase.pacchetti_cliente["500"]["sedute_effettuate"] == 3
+    assert "88" not in fake_supabase.appuntamenti
+
+
+def test_smoke_calendar_get_returns_events(authed_client):
+    client, fake_supabase = authed_client
+    fake_supabase.appuntamenti["1"] = {
+        "id": "1",
+        "start_datetime": "2026-03-11T10:00:00",
+        "end_datetime": "2026-03-11T11:00:00",
+        "stato": "prenotato",
+        "numero_seduta": 2,
+        "reminder_whatsapp": False,
+        "servizi": {
+            "nome": "Massoterapia",
+            "colore_calendario": "#2a9d8f",
+        },
+        "appuntamenti_clienti": [
+            {
+                "cliente_id": "101",
+                "clienti": {"nome": "Mario", "cognome": "Rossi"},
+            }
+        ],
+    }
+
+    response = client.get("/api/appuntamenti")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert len(body) == 1
+    assert body[0]["id"] == "1"
+    assert body[0]["title"] == "Massoterapia (S2)"
