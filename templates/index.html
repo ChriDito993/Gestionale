@@ -74,6 +74,54 @@
         </div>
     </div>
 
+    <!-- FILTRI RAPIDI CALENDARIO -->
+    <div class="calendar-filters-card">
+        <div class="calendar-filters-grid">
+            <div class="filter-field">
+                <label class="calendar-filter-label" for="filtroStato">Stato</label>
+                <select id="filtroStato" class="input-apple">
+                    <option value="">Tutti gli stati</option>
+                    <option value="prenotato">Prenotato</option>
+                    <option value="svolto">Svolto</option>
+                    <option value="completato">Completato</option>
+                    <option value="annullato">Annullato</option>
+                    <option value="no_show">No Show</option>
+                </select>
+            </div>
+
+            <div class="filter-field">
+                <label class="calendar-filter-label" for="filtroServizio">Servizio</label>
+                <select id="filtroServizio" class="input-apple">
+                    <option value="">Tutti i servizi</option>
+                </select>
+            </div>
+
+            <div class="filter-field">
+                <label class="calendar-filter-label" for="filtroCliente">Cliente</label>
+                <input type="text"
+                       id="filtroCliente"
+                       class="input-apple"
+                       placeholder="Nome o cognome cliente">
+            </div>
+
+            <div class="filter-field">
+                <label class="calendar-filter-label" for="filtroDataDa">Data da</label>
+                <input type="date" id="filtroDataDa" class="input-apple">
+            </div>
+
+            <div class="filter-field">
+                <label class="calendar-filter-label" for="filtroDataA">Data a</label>
+                <input type="date" id="filtroDataA" class="input-apple">
+            </div>
+        </div>
+
+        <div class="calendar-filters-actions">
+            <button type="button" id="resetFiltriCalendario" class="btn-apple-ghost">
+                Reset filtri
+            </button>
+        </div>
+    </div>
+
     <!-- CALENDARIO -->
     <div class="calendar-wrapper">
         <p class="mobile-calendar-hint">
@@ -126,7 +174,7 @@
         </div>
 
         <div class="modal-footer">
-            <button class="btn-apple-primary" onclick="salvaEvento()">Salva Appuntamento</button>
+            <button id="btnSalvaEvento" class="btn-apple-primary" onclick="salvaEvento()">Salva Appuntamento</button>
         </div>
     </div>
 </div>
@@ -189,8 +237,8 @@
                     📩
                 </button>
             </div>
-            <button type="button" class="btn-apple-primary" onclick="salvaModifiche()">Salva Modifiche</button>
-            <button type="button" class="btn-apple-ghost btn-danger" onclick="eliminaEvento()">Elimina Appuntamento</button>
+            <button type="button" id="btnSalvaModifiche" class="btn-apple-primary" onclick="salvaModifiche()">Salva Modifiche</button>
+            <button type="button" id="btnEliminaEvento" class="btn-apple-ghost btn-danger" onclick="eliminaEvento()">Elimina Appuntamento</button>
         </div>
     </div>
 </div>

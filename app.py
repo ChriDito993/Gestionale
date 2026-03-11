@@ -344,11 +344,16 @@ def get_appuntamenti():
 
     start = request.args.get("start")
     end = request.args.get("end")
+    stato = (request.args.get("stato") or "").strip()
+    servizio_id = (request.args.get("servizio_id") or "").strip()
+    cliente_query = (request.args.get("cliente") or "").strip().lower()
+    data_da = (request.args.get("data_da") or "").strip()
+    data_a = (request.args.get("data_a") or "").strip()
 
     global _calendar_cache
     from datetime import timedelta
 
-    cache_key = f"{start}_{end}"
+    cache_key = f"{start}_{end}_{stato}_{servizio_id}_{cliente_query}_{data_da}_{data_a}"
     now = datetime.now()
 
     # Usa cache se valida (30 secondi)
@@ -361,9 +366,36 @@ def get_appuntamenti():
 
     # 🔧 Normalizzazione formato ISO (rimuove timezone se presente)
     if start:
-        start = start.split("+")[0].split(" ")[0].replace("Z", "")
+        start = normalize_datetime_local(start)
     if end:
-        end = end.split("+")[0].split(" ")[0].replace("Z", "")
+        end = normalize_datetime_local(end)
+
+    start_filtro = None
+    end_filtro = None
+
+    if data_da:
+        try:
+            start_filtro = f"{datetime.fromisoformat(data_da).date().isoformat()}T00:00:00"
+        except ValueError:
+            start_filtro = None
+
+    if data_a:
+        try:
+            giorno_successivo = datetime.fromisoformat(data_a).date() + timedelta(days=1)
+            end_filtro = f"{giorno_successivo.isoformat()}T00:00:00"
+        except ValueError:
+            end_filtro = None
+
+    effective_start = start
+    effective_end = end
+
+    if start_filtro and (not effective_start or start_filtro > effective_start):
+        effective_start = start_filtro
+    if end_filtro and (not effective_end or end_filtro < effective_end):
+        effective_end = end_filtro
+
+    if effective_start and effective_end and effective_start >= effective_end:
+        return jsonify([])
 
     query = supabase.table("appuntamenti") \
         .select("""
@@ -375,9 +407,19 @@ def get_appuntamenti():
             )
         """)
 
+    if stato:
+        query = query.eq("stato", stato)
+
+    if servizio_id:
+        query = query.eq("servizio_id", servizio_id)
+
     # 🔹 Filtro per intervallo visibile (se presente)
-    if start and end:
-        query = query.gte("start_datetime", start).lt("start_datetime", end)
+    if effective_start and effective_end:
+        query = query.gte("start_datetime", effective_start).lt("start_datetime", effective_end)
+    elif effective_start:
+        query = query.gte("start_datetime", effective_start)
+    elif effective_end:
+        query = query.lt("start_datetime", effective_end)
 
     try:
         response = query.execute()
@@ -408,6 +450,9 @@ def get_appuntamenti():
 
         nomi_clienti = " + ".join(clienti_nomi)
 
+        if cliente_query and cliente_query not in nomi_clienti.lower():
+            continue
+
         nome_servizio = appo["servizi"]["nome"]
         colore = appo["servizi"]["colore_calendario"]
 
@@ -428,6 +473,7 @@ def get_appuntamenti():
                 "clienti": nomi_clienti,
                 "clienti_ids": clienti_ids,
                 "servizio": nome_servizio,
+                "stato": appo.get("stato"),
                 "numero_seduta": appo.get("numero_seduta"),
                 "reminder_whatsapp": appo.get("reminder_whatsapp", False)
             }

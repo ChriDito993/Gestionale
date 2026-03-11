@@ -14,6 +14,15 @@ const SERVIZIO_COLORI = {
     "check": "#475569",
     "ginnastica posturale di coppia": "#2f5d56"
 };
+const FILTRI_CALENDARIO_DEFAULT = Object.freeze({
+    stato: "",
+    servizio_id: "",
+    cliente: "",
+    data_da: "",
+    data_a: ""
+});
+let filtriCalendario = { ...FILTRI_CALENDARIO_DEFAULT };
+let filtroClienteDebounceTimer;
 
 function isMobileViewport() {
     return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
@@ -116,6 +125,131 @@ function leggiDataOraDalModalNuovoEvento() {
     return { startLocal, endLocal };
 }
 
+function setButtonLoading(button, loading, options = {}) {
+    if (!button) return;
+
+    const {
+        label = "Salvataggio...",
+        replaceContent = true
+    } = options;
+
+    if (loading) {
+        if (!button.dataset.originalHtml) {
+            button.dataset.originalHtml = button.innerHTML;
+        }
+        button.disabled = true;
+        button.classList.add("is-loading");
+        button.setAttribute("aria-busy", "true");
+        if (replaceContent) {
+            button.textContent = label;
+        }
+        return;
+    }
+
+    button.disabled = false;
+    button.classList.remove("is-loading");
+    button.removeAttribute("aria-busy");
+    if (replaceContent && button.dataset.originalHtml) {
+        button.innerHTML = button.dataset.originalHtml;
+    }
+}
+
+function buildAppuntamentiUrl(fetchInfo) {
+    const params = new URLSearchParams({
+        start: fetchInfo.startStr,
+        end: fetchInfo.endStr
+    });
+
+    if (filtriCalendario.stato) params.set("stato", filtriCalendario.stato);
+    if (filtriCalendario.servizio_id) params.set("servizio_id", filtriCalendario.servizio_id);
+    if (filtriCalendario.cliente) params.set("cliente", filtriCalendario.cliente);
+    if (filtriCalendario.data_da) params.set("data_da", filtriCalendario.data_da);
+    if (filtriCalendario.data_a) params.set("data_a", filtriCalendario.data_a);
+
+    return `/api/appuntamenti?${params.toString()}`;
+}
+
+function aggiornaFiltriCalendarioDaUI(refetch = true) {
+    const filtroStato = document.getElementById("filtroStato");
+    const filtroServizio = document.getElementById("filtroServizio");
+    const filtroCliente = document.getElementById("filtroCliente");
+    const filtroDataDa = document.getElementById("filtroDataDa");
+    const filtroDataA = document.getElementById("filtroDataA");
+
+    if (!filtroStato || !filtroServizio || !filtroCliente || !filtroDataDa || !filtroDataA) {
+        return;
+    }
+
+    let dataDa = filtroDataDa.value || "";
+    let dataA = filtroDataA.value || "";
+
+    // Se invertite, le riallineiamo automaticamente per non bloccare il flusso.
+    if (dataDa && dataA && dataDa > dataA) {
+        const tmp = dataDa;
+        dataDa = dataA;
+        dataA = tmp;
+        filtroDataDa.value = dataDa;
+        filtroDataA.value = dataA;
+    }
+
+    filtriCalendario = {
+        stato: (filtroStato.value || "").trim(),
+        servizio_id: (filtroServizio.value || "").trim(),
+        cliente: (filtroCliente.value || "").trim(),
+        data_da: dataDa,
+        data_a: dataA
+    };
+
+    if (refetch && calendar) {
+        calendar.refetchEvents();
+    }
+}
+
+function resetFiltriCalendario() {
+    const filtroStato = document.getElementById("filtroStato");
+    const filtroServizio = document.getElementById("filtroServizio");
+    const filtroCliente = document.getElementById("filtroCliente");
+    const filtroDataDa = document.getElementById("filtroDataDa");
+    const filtroDataA = document.getElementById("filtroDataA");
+
+    if (filtroStato) filtroStato.value = "";
+    if (filtroServizio) filtroServizio.value = "";
+    if (filtroCliente) filtroCliente.value = "";
+    if (filtroDataDa) filtroDataDa.value = "";
+    if (filtroDataA) filtroDataA.value = "";
+
+    filtriCalendario = { ...FILTRI_CALENDARIO_DEFAULT };
+    if (calendar) calendar.refetchEvents();
+}
+
+function inizializzaFiltriCalendario() {
+    const filtroStato = document.getElementById("filtroStato");
+    const filtroServizio = document.getElementById("filtroServizio");
+    const filtroCliente = document.getElementById("filtroCliente");
+    const filtroDataDa = document.getElementById("filtroDataDa");
+    const filtroDataA = document.getElementById("filtroDataA");
+    const resetBtn = document.getElementById("resetFiltriCalendario");
+
+    if (!filtroStato || !filtroServizio || !filtroCliente || !filtroDataDa || !filtroDataA || !resetBtn) {
+        return;
+    }
+
+    filtroStato.addEventListener("change", () => aggiornaFiltriCalendarioDaUI(true));
+    filtroServizio.addEventListener("change", () => aggiornaFiltriCalendarioDaUI(true));
+    filtroDataDa.addEventListener("change", () => aggiornaFiltriCalendarioDaUI(true));
+    filtroDataA.addEventListener("change", () => aggiornaFiltriCalendarioDaUI(true));
+
+    filtroCliente.addEventListener("input", () => {
+        clearTimeout(filtroClienteDebounceTimer);
+        filtroClienteDebounceTimer = setTimeout(() => {
+            aggiornaFiltriCalendarioDaUI(true);
+        }, 240);
+    });
+
+    resetBtn.addEventListener("click", resetFiltriCalendario);
+    aggiornaFiltriCalendarioDaUI(false);
+}
+
 document.addEventListener('DOMContentLoaded', function () {
 
     var calendarEl = document.getElementById('calendar');
@@ -182,7 +316,7 @@ buttonText: {
         ],
 
         events: function(fetchInfo, successCallback, failureCallback) {
-            fetch(`/api/appuntamenti?start=${fetchInfo.startStr}&end=${fetchInfo.endStr}`, {
+            fetch(buildAppuntamentiUrl(fetchInfo), {
                 cache: "no-store"
             })
                 .then(r => r.json())
@@ -338,6 +472,7 @@ buttonText: {
     });
 
     calendar.render();
+    inizializzaFiltriCalendario();
 
     function aggiornaDashboardOggi() {
         fetch('/api/appuntamenti_oggi')
@@ -572,21 +707,24 @@ function chiudiModal() {
     requestAnimationFrame(() => m.style.display = "none");
 }
 
-function salvaEvento() {
+async function salvaEvento() {
 
     const servizioId = document.getElementById("servizioSelect").value;
     const pacchettoId = document.getElementById("pacchettoSelect")?.value || null;
     const dataOrarioCustom = leggiDataOraDalModalNuovoEvento();
+    const salvaBtn = document.getElementById("btnSalvaEvento");
+
+    if (salvaBtn?.disabled) return;
 
     if (!dataOrarioCustom) {
-        alert("Inserisci data e orario validi.");
+        mostraToast("Inserisci data e orario validi", "warning");
         return;
     }
 
     const { startLocal, endLocal } = dataOrarioCustom;
 
     if (endLocal <= startLocal) {
-        alert("L'ora di fine deve essere successiva all'ora di inizio.");
+        mostraToast("L'ora di fine deve essere successiva all'ora di inizio", "warning");
         return;
     }
 
@@ -598,35 +736,39 @@ function salvaEvento() {
         return;
     }
 
-    fetch('/api/appuntamenti', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            clienti_ids: clientiSelezionati.map(c => c.id),
-            servizio_id: servizioId,
-            pacchetto_cliente_id: pacchettoId,
-            start_datetime: selectedStart,
-            end_datetime: selectedEnd,
-            note: "",
-            durata_minuti: Math.round((new Date(selectedEnd) - new Date(selectedStart)) / 60000)
+    setButtonLoading(salvaBtn, true, { label: "Salvataggio..." });
+
+    try {
+        const response = await fetch('/api/appuntamenti', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                clienti_ids: clientiSelezionati.map(c => c.id),
+                servizio_id: servizioId,
+                pacchetto_cliente_id: pacchettoId,
+                start_datetime: selectedStart,
+                end_datetime: selectedEnd,
+                note: "",
+                durata_minuti: Math.round((new Date(selectedEnd) - new Date(selectedStart)) / 60000)
+            })
         })
-    })
-    .then(response => {
+
         if (!response.ok) {
             throw new Error("Errore nel salvataggio");
         }
-        return response.json();
-    })
-    .then(() => {
+
+        await response.json();
         chiudiModal();
         calendar.refetchEvents();
         clientiSelezionati = [];
         aggiornaClientiSelezionati();
-    })
-    .catch(error => {
+        mostraToast("Appuntamento creato con successo", "success");
+    } catch (error) {
         console.error("Errore:", error);
         mostraToast("Errore nel creare appuntamento", "error");
-    });
+    } finally {
+        setButtonLoading(salvaBtn, false);
+    }
 }
 
 
@@ -859,39 +1001,91 @@ window.addEventListener("keydown", function(event) {
     }
 }, { passive: true });
 
-function salvaModifiche() {
+async function salvaModifiche() {
 
     const data = document.getElementById("dataModifica").value;
     const oraInizio = document.getElementById("oraInizioModifica").value;
     const oraFine = document.getElementById("oraFineModifica").value;
+    const salvaBtn = document.getElementById("btnSalvaModifiche");
+
+    if (salvaBtn?.disabled) return;
+    if (!window.eventoSelezionato) {
+        mostraToast("Nessun appuntamento selezionato", "error");
+        return;
+    }
+
+    if (!data || !oraInizio || !oraFine) {
+        mostraToast("Compila data e orari prima di salvare", "warning");
+        return;
+    }
 
     const start_datetime = data + "T" + oraInizio + ":00";
     const end_datetime = data + "T" + oraFine + ":00";
 
-    fetch('/api/appuntamenti/' + window.eventoSelezionato.id, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            start_datetime: start_datetime,
-            end_datetime: end_datetime
+    if (end_datetime <= start_datetime) {
+        mostraToast("L'ora di fine deve essere successiva all'ora di inizio", "warning");
+        return;
+    }
+
+    setButtonLoading(salvaBtn, true, { label: "Salvataggio..." });
+
+    try {
+        const response = await fetch('/api/appuntamenti/' + window.eventoSelezionato.id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                start_datetime: start_datetime,
+                end_datetime: end_datetime
+            })
         })
-    }).then(() => {
+
+        if (!response.ok) {
+            throw new Error("Errore aggiornamento appuntamento");
+        }
+
         chiudiModificaModal();
         calendar.refetchEvents();
-    });
+        mostraToast("Appuntamento aggiornato", "success");
+    } catch (error) {
+        console.error("Errore aggiorna appuntamento:", error);
+        mostraToast("Errore nel salvataggio modifiche", "error");
+    } finally {
+        setButtonLoading(salvaBtn, false);
+    }
 }
 
 
-function eliminaEvento() {
+async function eliminaEvento() {
 
     if (!confirm("Sei sicuro di voler eliminare l'appuntamento?")) return;
+    if (!window.eventoSelezionato) {
+        mostraToast("Nessun appuntamento selezionato", "error");
+        return;
+    }
 
-    fetch('/api/appuntamenti/' + window.eventoSelezionato.id, {
-        method: 'DELETE'
-    }).then(() => {
+    const deleteBtn = document.getElementById("btnEliminaEvento");
+    if (deleteBtn?.disabled) return;
+
+    setButtonLoading(deleteBtn, true, { replaceContent: false });
+
+    try {
+        const response = await fetch('/api/appuntamenti/' + window.eventoSelezionato.id, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            throw new Error("Errore eliminazione appuntamento");
+        }
+
         chiudiModificaModal();
         calendar.refetchEvents();
-    });
+        mostraToast("Appuntamento eliminato", "success");
+    } catch (error) {
+        console.error("Errore elimina appuntamento:", error);
+        mostraToast("Errore durante eliminazione", "error");
+    } finally {
+        setButtonLoading(deleteBtn, false, { replaceContent: false });
+    }
 }
 
 function inviaPromemoria() {
@@ -1175,12 +1369,26 @@ function caricaServizi() {
         .then(data => {
             serviziData = data;
             const select = document.getElementById("servizioSelect");
-            select.innerHTML = "";
+            const filtroServizio = document.getElementById("filtroServizio");
+            if (select) select.innerHTML = "";
+            if (filtroServizio) {
+                filtroServizio.innerHTML = '<option value="">Tutti i servizi</option>';
+            }
+
             data.forEach(servizio => {
                 let option = document.createElement("option");
                 option.value = servizio.id;
                 option.text = servizio.nome;
-                select.appendChild(option);
+                if (select) {
+                    select.appendChild(option);
+                }
+
+                if (filtroServizio) {
+                    const filterOption = document.createElement("option");
+                    filterOption.value = servizio.id;
+                    filterOption.text = servizio.nome;
+                    filtroServizio.appendChild(filterOption);
+                }
             });
         });
 }
@@ -1190,46 +1398,43 @@ function caricaServizi() {
 =================================*/
 
 function mostraToast(messaggio, tipo = "success") {
+    const icone = {
+        success: "✔",
+        error: "✖",
+        warning: "!",
+        info: "i"
+    };
+    const icona = icone[tipo] || "•";
 
-    const modal = document.getElementById("modificaModal");
-    if (!modal) return;
-
-    // Rimuove eventuale toast precedente
-    const vecchio = modal.querySelector(".toast-inline");
-    if (vecchio) vecchio.remove();
-
-    const toast = document.createElement("div");
-    toast.className = `toast-inline toast-${tipo}`;
-
-    const icona = tipo === "success" ? "✔" : "✖";
-
-    toast.innerHTML = `
-        <div class="toast-content">
-            <span class="toast-icon">${icona}</span>
-            <span class="toast-message">${messaggio}</span>
-        </div>
-        <div class="toast-progress"></div>
-    `;
-
-    const promemoriaContainer = modal.querySelector(".promemoria-split");
-    if (promemoriaContainer) {
-        promemoriaContainer.insertAdjacentElement("afterend", toast);
-    } else {
-        modal.querySelector(".modal-footer").prepend(toast);
+    let container = document.getElementById("appToastContainer");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "appToastContainer";
+        container.className = "app-toast-container";
+        document.body.appendChild(container);
     }
 
-    // Trigger animazione
-    requestAnimationFrame(() => {
-        toast.classList.add("toast-show");
-    });
+    const toast = document.createElement("div");
+    toast.className = `app-toast app-toast-${tipo}`;
+    toast.innerHTML = `
+        <div class="app-toast-content">
+            <span class="app-toast-icon">${icona}</span>
+            <span class="app-toast-message">${messaggio}</span>
+        </div>
+        <div class="app-toast-progress"></div>
+    `;
 
-    // Animazione barra progresso
-    const progress = toast.querySelector(".toast-progress");
-    progress.style.animation = "toastProgress 2.5s linear forwards";
+    container.appendChild(toast);
+    while (container.children.length > 3) {
+        container.removeChild(container.firstElementChild);
+    }
+
+    requestAnimationFrame(() => toast.classList.add("app-toast-show"));
 
     setTimeout(() => {
-        toast.classList.remove("toast-show");
-        setTimeout(() => toast.remove(), 300);
+        toast.classList.remove("app-toast-show");
+        toast.classList.add("app-toast-hide");
+        setTimeout(() => toast.remove(), 260);
     }, 2500);
 }
 
