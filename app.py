@@ -1,15 +1,24 @@
 import os
 import re
-from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for
+import logging
+import uuid
+from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for, g, has_request_context
 from supabase import create_client
 from dotenv import load_dotenv
 from datetime import datetime
 from functools import wraps
+from werkzeug.exceptions import HTTPException
 
 from io import BytesIO
 
 
 import requests
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
+except ImportError:
+    sentry_sdk = None
+    FlaskIntegration = None
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem
 from reportlab.lib.styles import getSampleStyleSheet
@@ -24,11 +33,47 @@ load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+
+class RequestContextFilter(logging.Filter):
+    def filter(self, record):
+        if has_request_context():
+            record.request_id = getattr(g, "request_id", "-")
+            record.request_method = request.method
+            record.request_path = request.path
+        else:
+            record.request_id = "-"
+            record.request_method = "-"
+            record.request_path = "-"
+        return True
+
+
+def configure_logging():
+    log_level_name = (os.getenv("LOG_LEVEL") or "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+    root_logger = logging.getLogger()
+
+    if not root_logger.handlers:
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s %(levelname)s [%(request_id)s] %(request_method)s %(request_path)s %(name)s: %(message)s"
+        )
+    else:
+        root_logger.setLevel(log_level)
+        for handler in root_logger.handlers:
+            handler.setLevel(log_level)
+
+    for handler in root_logger.handlers:
+        has_filter = any(isinstance(flt, RequestContextFilter) for flt in handler.filters)
+        if not has_filter:
+            handler.addFilter(RequestContextFilter())
+
 app = Flask(
     __name__,
     template_folder=os.path.join(BASE_DIR, "templates"),
     static_folder=os.path.join(BASE_DIR, "static")
 )
+
+configure_logging()
 
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key-change-me")
 
@@ -40,6 +85,40 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def init_sentry():
+    sentry_dsn = (os.getenv("SENTRY_DSN") or "").strip()
+    if not sentry_dsn:
+        return
+
+    if sentry_sdk is None:
+        app.logger.warning("SENTRY_DSN impostata ma sentry-sdk non installato.")
+        return
+
+    traces_sample_rate_raw = os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0")
+    try:
+        traces_sample_rate = float(traces_sample_rate_raw)
+    except ValueError:
+        traces_sample_rate = 0.0
+
+    environment = os.getenv("SENTRY_ENVIRONMENT") or os.getenv("RENDER_ENV") or "production"
+
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        integrations=[FlaskIntegration()],
+        traces_sample_rate=traces_sample_rate,
+        environment=environment,
+        release=os.getenv("RENDER_GIT_COMMIT")
+    )
+    app.logger.info(
+        "Sentry attivo (env=%s, traces_sample_rate=%s)",
+        environment,
+        traces_sample_rate
+    )
+
+
+init_sentry()
 
 
 @app.context_processor
@@ -102,6 +181,52 @@ def normalize_datetime_local(value):
         return dt.replace(microsecond=0).isoformat()
     except ValueError:
         return normalized
+
+
+@app.before_request
+def attach_request_id():
+    incoming_request_id = (request.headers.get("X-Request-ID") or "").strip()
+    g.request_id = incoming_request_id[:64] if incoming_request_id else uuid.uuid4().hex[:12]
+
+
+@app.after_request
+def add_request_id_header(response):
+    request_id = getattr(g, "request_id", None)
+    if request_id:
+        response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_exception(error):
+    if isinstance(error, HTTPException):
+        return error
+
+    request_id = getattr(g, "request_id", "n/a")
+    app.logger.exception("Errore non gestito (request_id=%s)", request_id)
+
+    if request.path.startswith("/api/"):
+        return jsonify({
+            "error": "Errore interno del server",
+            "request_id": request_id
+        }), 500
+
+    return render_template_string(
+        """
+        <h3>Errore interno del server</h3>
+        <p>ID richiesta: {{ request_id }}</p>
+        """,
+        request_id=request_id
+    ), 500
+
+
+@app.route("/health", methods=["GET"])
+def health_check():
+    return jsonify({
+        "status": "ok",
+        "service": "gestionale",
+        "timestamp": datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    })
 
 # ===============================
 # LOGIN REQUIRED DECORATOR
@@ -288,7 +413,11 @@ def elimina_cliente(cliente_id):
             .eq("cliente_id", cliente_id) \
             .execute()
     except Exception as e:
-        print("Errore eliminazione relazioni appuntamenti_clienti:", e)
+        app.logger.warning(
+            "Errore eliminazione relazioni appuntamenti_clienti cliente_id=%s error=%s",
+            cliente_id,
+            e
+        )
 
     # Eliminiamo eventuali pacchetti cliente
     try:
@@ -297,7 +426,11 @@ def elimina_cliente(cliente_id):
             .eq("cliente_id", cliente_id) \
             .execute()
     except Exception as e:
-        print("Errore eliminazione pacchetti_cliente:", e)
+        app.logger.warning(
+            "Errore eliminazione pacchetti_cliente cliente_id=%s error=%s",
+            cliente_id,
+            e
+        )
 
     # Eliminiamo eventuali appuntamenti legati (compatibilità vecchio campo cliente_id)
     try:
@@ -306,7 +439,11 @@ def elimina_cliente(cliente_id):
             .eq("cliente_id", cliente_id) \
             .execute()
     except Exception as e:
-        print("Errore eliminazione appuntamenti:", e)
+        app.logger.warning(
+            "Errore eliminazione appuntamenti cliente_id=%s error=%s",
+            cliente_id,
+            e
+        )
 
     # Infine eliminiamo il cliente
     response = supabase.table("clienti") \
@@ -424,11 +561,11 @@ def get_appuntamenti():
     try:
         response = query.execute()
     except Exception as e:
-        print("🔥 ERRORE QUERY SUPABASE:", e)
+        app.logger.exception("Errore query Supabase /api/appuntamenti")
         return jsonify([])
 
     if not response or response.data is None:
-        print("Errore Supabase response vuota:", response)
+        app.logger.warning("Response Supabase vuota su /api/appuntamenti: %s", response)
         return jsonify([])
 
     eventi = []
@@ -601,7 +738,12 @@ def crea_appuntamento():
                 "cliente_id": cliente_id
             }).execute()
         except Exception as e:
-            print("Errore inserimento cliente in appuntamenti_clienti:", e)
+            app.logger.warning(
+                "Errore inserimento appuntamenti_clienti appuntamento_id=%s cliente_id=%s error=%s",
+                appuntamento_id,
+                cliente_id,
+                e
+            )
 
     # 🔹 Risposta finale API
     if nuovo_appuntamento.data:
@@ -1179,7 +1321,7 @@ Christian Di Tommaso
             }), 500
 
     except Exception as e:
-        print("Errore invio email Resend:", e)
+        app.logger.exception("Errore invio email Resend appuntamento_id=%s", appuntamento_id)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 

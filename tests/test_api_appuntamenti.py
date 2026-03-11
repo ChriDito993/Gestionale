@@ -376,3 +376,32 @@ def test_smoke_calendar_get_returns_events(authed_client):
     assert len(body) == 1
     assert body[0]["id"] == "1"
     assert body[0]["title"] == "Massoterapia (S2)"
+
+
+def test_health_endpoint_is_public(unauth_client):
+    client = unauth_client
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "ok"
+    assert "timestamp" in body
+    assert response.headers.get("X-Request-ID")
+
+
+def test_api_unhandled_error_returns_request_id(authed_client, monkeypatch):
+    client, _fake_supabase = authed_client
+
+    class ExplodingSupabase:
+        def table(self, _table_name):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(app_module, "supabase", ExplodingSupabase())
+
+    response = client.get("/api/servizi")
+
+    assert response.status_code == 500
+    body = response.get_json()
+    assert body["error"] == "Errore interno del server"
+    assert body["request_id"]
+    assert response.headers.get("X-Request-ID") == body["request_id"]

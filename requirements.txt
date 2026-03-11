@@ -6,3 +6,4 @@ reportlab
 httpx
 requests
 pytest
+sentry-sdk[flask]
