@@ -168,8 +168,8 @@ html, button, input, select, textarea {
 }
 
 .dashboard-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 28px 60px rgba(15,23,42,0.14);
+    transform: translateY(-2px);
+    box-shadow: 0 24px 52px rgba(15,23,42,0.13);
 }
 
 .dashboard-label {
@@ -182,11 +182,53 @@ html, button, input, select, textarea {
     margin-bottom: 10px;
 }
 
+.dashboard-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.dashboard-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #2a9d8f;
+    background: rgba(42,157,143,0.12);
+    border: 1px solid rgba(42,157,143,0.26);
+}
+
 .dashboard-value {
     font-size: 34px;
     font-weight: 700;
     color: #111827;
     letter-spacing: 0.5px;
+}
+
+.dashboard-meta {
+    display: block;
+    margin-top: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #6b7280;
+}
+
+.dashboard-meta-uppercase {
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+
+.dashboard-card-interactive {
+    cursor: pointer;
+}
+
+.dashboard-card-interactive:hover {
+    border-color: rgba(42,157,143,0.24);
 }
 
 @media (max-width: 900px) {
@@ -349,7 +391,7 @@ html, button, input, select, textarea {
 
 /* Slightly refine today background */
 .fc-day-today {
-    background: rgba(17,24,39,0.06) !important;
+    background: rgba(42,157,143,0.08) !important;
 }
 
 .fc-theme-standard td,
@@ -399,18 +441,37 @@ html, button, input, select, textarea {
     color: #374151 !important;
 }
 
-.fc-day-today {
-    background: linear-gradient(
-        to bottom,
-        rgba(42,157,143,0.08),
-        rgba(42,157,143,0.04)
-    ) !important;
-    border-top: 3px solid #2a9d8f !important;
-}
-
 .fc-day-today .fc-col-header-cell-cushion {
     font-weight: 700 !important;
     color: #2a9d8f !important;
+}
+
+/* Evidenzia meglio "oggi" */
+.fc .fc-timegrid-col.fc-day-today,
+.fc .fc-col-header-cell.fc-day-today {
+    background: linear-gradient(
+        to bottom,
+        rgba(42,157,143,0.14),
+        rgba(42,157,143,0.06)
+    ) !important;
+}
+
+.fc .fc-col-header-cell.fc-day-today {
+    box-shadow: inset 0 -2px 0 rgba(42,157,143,0.45);
+}
+
+/* Weekend con sfondo soft separato */
+.fc .fc-timegrid-col.fc-day-sat,
+.fc .fc-timegrid-col.fc-day-sun,
+.fc .fc-col-header-cell.fc-day-sat,
+.fc .fc-col-header-cell.fc-day-sun {
+    background: rgba(148,163,184,0.08) !important;
+}
+
+.fc .fc-col-header-cell.fc-day-sat .fc-col-header-cell-cushion,
+.fc .fc-col-header-cell.fc-day-sun .fc-col-header-cell-cushion {
+    color: #475569 !important;
+    font-weight: 700 !important;
 }
 
 .fc-timegrid-now-indicator-line {
@@ -508,6 +569,22 @@ html, button, input, select, textarea {
     animation: fadeInModal 0.25s ease;
 }
 
+.modal-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.modal-shell .section {
+    margin-bottom: 0;
+}
+
+.modal-shell label {
+    font-size: 11px;
+    letter-spacing: 0.8px;
+    margin-bottom: 6px;
+}
+
 .modal-content h3 {
     margin: 0 0 30px 0;
     font-weight: 600;
@@ -544,6 +621,13 @@ html, button, input, select, textarea {
 }
 
 #eventoModal .modal-content {
+    max-height: min(88vh, 760px);
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+#modificaModal .modal-content,
+#clienteModal .modal-content {
     max-height: min(88vh, 760px);
     overflow-y: auto;
     overflow-x: hidden;
@@ -605,7 +689,13 @@ html, button, input, select, textarea {
 }
 
 .modal-footer {
-    margin-top: 35px;
+    margin-top: 10px;
+    position: sticky;
+    bottom: -1px;
+    background: linear-gradient(to top, #ffffff 84%, rgba(255,255,255,0.9) 100%);
+    padding-top: 14px;
+    border-top: 1px solid rgba(17,24,39,0.08);
+    z-index: 5;
 }
 
 
@@ -626,9 +716,9 @@ input, select, textarea {
 
 input:focus, select:focus, textarea:focus {
     outline: none;
-    border-color: #111827;
+    border-color: #2a9d8f;
     background: white;
-    box-shadow: 0 0 0 4px rgba(17,24,39,0.15);
+    box-shadow: 0 0 0 4px rgba(42,157,143,0.15);
 }
 
 select {
@@ -1054,9 +1144,9 @@ select {
 
 .input-apple:focus {
     outline: none;
-    border-color: #2563eb;
+    border-color: #2a9d8f;
     background: #ffffff;
-    box-shadow: 0 0 0 4px rgba(37,99,235,0.15);
+    box-shadow: 0 0 0 4px rgba(42,157,143,0.15);
 }
 
 .btn-apple-primary {
@@ -1408,6 +1498,70 @@ button:disabled {
     transition: all 0.25s ease;
 }
 
+.cliente-dettaglio-page .detail-header-actions {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+}
+
+.cliente-dettaglio-page .btn-inline-danger {
+    background: transparent;
+    border: 1px solid #ef4444;
+    color: #ef4444;
+    padding: 10px 16px;
+    border-radius: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.cliente-dettaglio-page .btn-inline-danger:hover {
+    background: #ef4444;
+    color: #ffffff;
+    box-shadow: 0 10px 25px rgba(239,68,68,0.35);
+}
+
+.cliente-dettaglio-page .detail-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    margin-top: 15px;
+}
+
+.cliente-dettaglio-page .detail-stat-card {
+    background: rgba(249,250,251,0.82);
+    border: 1px solid rgba(17,24,39,0.07);
+    border-radius: 14px;
+    padding: 12px 14px;
+}
+
+.cliente-dettaglio-page .detail-stat-label {
+    margin: 0 0 5px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #6b7280;
+}
+
+.cliente-dettaglio-page .detail-stat-value {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 700;
+    color: #111827;
+}
+
+.cliente-dettaglio-page .detail-stat-secondary {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.cliente-dettaglio-page .btn-anagrafica-open {
+    margin-top: 15px;
+}
+
 .cliente-dettaglio-page .detail-card h3 {
     margin: 0 0 22px 0;
     font-size: 21px;
@@ -1497,16 +1651,19 @@ button:disabled {
 }
 
 .cliente-dettaglio-page .pacchetto-progress-track {
-    height: 8px;
-    background: #e5e7eb;
+    height: 10px;
+    background: linear-gradient(90deg, #e5e7eb, #dbe4ee);
     border-radius: 999px;
     overflow: hidden;
     margin-bottom: 10px;
+    box-shadow: inset 0 1px 3px rgba(15,23,42,0.12);
 }
 
 .cliente-dettaglio-page .pacchetto-progress-fill {
     height: 100%;
     background: linear-gradient(135deg, #2a9d8f, #21867a);
+    border-radius: 999px;
+    transition: width 0.35s ease;
 }
 
 .cliente-dettaglio-page .pacchetto-close-form {
@@ -1591,6 +1748,19 @@ button:disabled {
 .cliente-dettaglio-page .cliente-app-section {
     display: grid;
     gap: 14px;
+    position: relative;
+}
+
+.cliente-dettaglio-page .cliente-app-section::before {
+    content: "";
+    position: absolute;
+    left: 12px;
+    top: 10px;
+    bottom: 10px;
+    width: 2px;
+    border-radius: 999px;
+    background: linear-gradient(to bottom, rgba(42,157,143,0.35), rgba(148,163,184,0.25));
+    pointer-events: none;
 }
 
 .cliente-dettaglio-page .cliente-app-card {
@@ -1606,6 +1776,13 @@ button:disabled {
     border: 1px solid rgba(17,24,39,0.08);
     box-shadow: 0 15px 35px rgba(15,23,42,0.06);
     transition: all 0.2s ease;
+}
+
+.cliente-dettaglio-page .cliente-app-link,
+.cliente-dettaglio-page .cliente-app-link:link,
+.cliente-dettaglio-page .cliente-app-link:visited {
+    text-decoration: none;
+    color: inherit;
 }
 
 .cliente-dettaglio-page .cliente-app-card:hover {
@@ -1645,6 +1822,24 @@ button:disabled {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    position: relative;
+    padding-left: 18px;
+}
+
+.cliente-dettaglio-page .cliente-app-timeline-dot {
+    position: absolute;
+    left: 0;
+    top: 3px;
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: #2a9d8f;
+    box-shadow: 0 0 0 3px rgba(42,157,143,0.16);
+}
+
+.cliente-dettaglio-page .cliente-app-card.past .cliente-app-timeline-dot {
+    background: #94a3b8;
+    box-shadow: 0 0 0 3px rgba(148,163,184,0.24);
 }
 
 .cliente-dettaglio-page .cliente-app-date {
@@ -1679,6 +1874,52 @@ button:disabled {
     font-weight: 600;
 }
 
+.cliente-dettaglio-page .btn-pdf-promemoria {
+    margin-top: 20px;
+    display: inline-block;
+}
+
+.cliente-dettaglio-page .confirm-modal {
+    max-width: 420px;
+    text-align: center;
+}
+
+.cliente-dettaglio-page .confirm-modal-title {
+    margin-bottom: 18px;
+}
+
+.cliente-dettaglio-page .confirm-modal-text {
+    margin-bottom: 28px;
+    color: #6b7280;
+}
+
+.cliente-dettaglio-page .confirm-modal-actions {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+}
+
+.cliente-dettaglio-page .confirm-modal-actions .btn-apple-ghost,
+.cliente-dettaglio-page .confirm-modal-actions .btn-confirm-danger {
+    width: 140px;
+}
+
+.cliente-dettaglio-page .btn-confirm-danger {
+    border: none;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 15px 35px rgba(239,68,68,0.35);
+    transition: all 0.2s ease;
+}
+
+.cliente-dettaglio-page .btn-confirm-danger:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 40px rgba(239,68,68,0.42);
+}
+
 .cliente-dettaglio-page .seduta-badge {
     margin-left: 8px;
     font-size: 11px;
@@ -1691,6 +1932,17 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
+    .cliente-dettaglio-page .detail-header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .cliente-dettaglio-page .detail-header-actions .btn-primary,
+    .cliente-dettaglio-page .detail-header-actions .btn-inline-danger {
+        width: 100%;
+        text-align: center;
+    }
+
     .cliente-dettaglio-page .cliente-app-card {
         flex-direction: column;
         align-items: flex-start;

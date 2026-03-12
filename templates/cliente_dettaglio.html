@@ -13,7 +13,7 @@
     <header class="app-header">
         <h1>{{ cliente.nome }} {{ cliente.cognome }}</h1>
 
-        <div style="display:flex; gap:14px; align-items:center;">
+        <div class="detail-header-actions">
             <a href="/" class="btn-primary">
                 ← Torna al Calendario
             </a>
@@ -22,19 +22,7 @@
                 ← Torna ai Clienti
             </a>
 
-            <button onclick="apriEliminaClienteModal()"
-                    style="
-                        background: transparent;
-                        border: 1px solid #ef4444;
-                        color: #ef4444;
-                        padding: 10px 16px;
-                        border-radius: 12px;
-                        font-weight: 500;
-                        cursor: pointer;
-                        transition: all 0.2s ease;
-                    "
-                    onmouseenter="this.style.background='#ef4444';this.style.color='#fff';this.style.boxShadow='0 10px 25px rgba(239,68,68,0.35)'"
-                    onmouseleave="this.style.background='transparent';this.style.color='#ef4444';this.style.boxShadow='none'">
+            <button onclick="apriEliminaClienteModal()" class="btn-inline-danger">
                 Elimina Cliente
             </button>
         </div>
@@ -43,22 +31,22 @@
     <!-- MINI DASHBOARD CLIENTE -->
     <div class="detail-card">
         <h3>Riepilogo Cliente</h3>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:20px;margin-top:15px;">
-            <div>
-                <p style="font-size:12px;color:#6b7280;text-transform:uppercase;">Sedute Totali</p>
-                <p style="font-size:20px;font-weight:600;">{{ stats_totali or 0 }}</p>
+        <div class="detail-stats-grid">
+            <div class="detail-stat-card">
+                <p class="detail-stat-label">Sedute Totali</p>
+                <p class="detail-stat-value">{{ stats_totali or 0 }}</p>
             </div>
-            <div>
-                <p style="font-size:12px;color:#6b7280;text-transform:uppercase;">Sedute Rimanenti</p>
-                <p style="font-size:20px;font-weight:600;">{{ stats_rimanenti or 0 }}</p>
+            <div class="detail-stat-card">
+                <p class="detail-stat-label">Sedute Rimanenti</p>
+                <p class="detail-stat-value">{{ stats_rimanenti or 0 }}</p>
             </div>
-            <div>
-                <p style="font-size:12px;color:#6b7280;text-transform:uppercase;">Ultima Visita</p>
-                <p style="font-size:16px;font-weight:500;">{{ ultima_visita or '-' }}</p>
+            <div class="detail-stat-card">
+                <p class="detail-stat-label">Ultima Visita</p>
+                <p class="detail-stat-secondary">{{ ultima_visita or '-' }}</p>
             </div>
-            <div>
-                <p style="font-size:12px;color:#6b7280;text-transform:uppercase;">Prossima Visita</p>
-                <p style="font-size:16px;font-weight:500;">{{ prossima_visita or '-' }}</p>
+            <div class="detail-stat-card">
+                <p class="detail-stat-label">Prossima Visita</p>
+                <p class="detail-stat-secondary">{{ prossima_visita or '-' }}</p>
             </div>
         </div>
     </div>
@@ -72,7 +60,7 @@
             <p><strong>Data nascita:</strong> {{ cliente.data_nascita or "-" }}</p>
         </div>
 
-        <button onclick="apriModificaCliente()" class="btn-primary" style="margin-top:15px;">
+        <button onclick="apriModificaCliente()" class="btn-primary btn-anagrafica-open">
             Modifica Anagrafica
         </button>
 
@@ -130,7 +118,7 @@
                 </div>
 
                 <div class="pacchetto-progress-track">
-                    <div class="pacchetto-progress-fill" data-width="{{ progress_width }}"></div>
+                    <div class="pacchetto-progress-fill" style="width: {{ progress_width }}%;"></div>
                 </div>
 
                 <form method="POST" action="/chiudi_pacchetto/{{ pac.id }}" class="pacchetto-close-form">
@@ -153,8 +141,9 @@
         {% if appuntamenti and appuntamenti|length > 0 %}
             <div class="cliente-app-section">
                 {% for app in appuntamenti %}
-                <a href="/?open_event={{ app.id }}" class="cliente-app-card future" style="text-decoration:none; color:inherit;">
+                <a href="/?open_event={{ app.id }}" class="cliente-app-card future cliente-app-link">
                     <div class="cliente-app-info">
+                        <span class="cliente-app-timeline-dot" aria-hidden="true"></span>
                         <div class="cliente-app-date">{{ app.data_formattata }}</div>
                         <div class="cliente-app-service">
                             {{ app.servizio }}
@@ -167,7 +156,7 @@
 
             <a href="/cliente/{{ cliente.id }}/promemoria"
                target="_blank"
-               class="btn-primary" style="margin-top:20px; display:inline-block;">
+               class="btn-primary btn-pdf-promemoria">
                 Genera PDF Promemoria
             </a>
 
@@ -193,8 +182,9 @@
         {% if storico_appuntamenti and storico_appuntamenti|length > 0 %}
             <div id="storicoSection" class="cliente-app-section storico-collapsed">
                 {% for app in storico_appuntamenti %}
-                <a href="/?open_event={{ app.id }}" class="cliente-app-card past" style="text-decoration:none; color:inherit;">
+                <a href="/?open_event={{ app.id }}" class="cliente-app-card past cliente-app-link">
                     <div class="cliente-app-info">
+                        <span class="cliente-app-timeline-dot" aria-hidden="true"></span>
                         <div class="cliente-app-date">
                             {{ app.data_formattata }}
                         </div>
@@ -233,32 +223,19 @@
 
 <!-- MODALE ELIMINA CLIENTE -->
 <div id="eliminaClienteModal" class="modal">
-    <div class="modal-content" style="max-width:420px; text-align:center;">
+    <div class="modal-content confirm-modal">
         <span class="close" onclick="chiudiEliminaClienteModal()">✖</span>
-        <h3 style="margin-bottom:18px;">Conferma Eliminazione</h3>
-        <p style="margin-bottom:28px; color:#6b7280;">
+        <h3 class="confirm-modal-title">Conferma Eliminazione</h3>
+        <p class="confirm-modal-text">
             Questa operazione eliminerà definitivamente il cliente e tutti i dati collegati.
         </p>
-        <div style="display:flex; justify-content:center; gap:16px;">
+        <div class="confirm-modal-actions">
             <button onclick="chiudiEliminaClienteModal()"
                     class="btn-apple-ghost"
-                    style="width:140px;">
+                    >
                 Annulla
             </button>
-            <button onclick="eliminaCliente('{{ cliente.id }}')"
-                    style="
-                        width:140px;
-                        border:none;
-                        border-radius:16px;
-                        background:linear-gradient(135deg,#ef4444,#dc2626);
-                        color:white;
-                        font-weight:600;
-                        cursor:pointer;
-                        box-shadow:0 15px 35px rgba(239,68,68,0.35);
-                        transition:all 0.2s ease;
-                    "
-                    onmouseenter="this.style.transform='translateY(-2px)'"
-                    onmouseleave="this.style.transform='none'">
+            <button onclick="eliminaCliente('{{ cliente.id }}')" class="btn-confirm-danger">
                 Elimina
             </button>
         </div>
