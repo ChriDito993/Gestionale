@@ -11,6 +11,8 @@ body {
     background: linear-gradient(135deg, #eef2f7, #f8fafc);
     font-family: 'Inter', 'Segoe UI', sans-serif;
     color: #1f2937;
+    line-height: 1.45;
+    letter-spacing: 0.01em;
 }
 
 /* ========================= */
@@ -21,12 +23,39 @@ html, button, input, select, textarea {
     font-family: 'Inter', 'Segoe UI', sans-serif;
 }
 
+:root {
+    --pro-space-1: 4px;
+    --pro-space-2: 8px;
+    --pro-space-3: 12px;
+    --pro-space-4: 16px;
+    --pro-space-5: 20px;
+    --pro-space-6: 24px;
+    --pro-space-7: 32px;
+    --pro-space-8: 40px;
+    --pro-radius-sm: 12px;
+    --pro-radius-md: 18px;
+    --pro-radius-lg: 22px;
+    --pro-surface-border: 1px solid rgba(17,24,39,0.08);
+    --pro-shadow-soft: 0 16px 34px rgba(15,23,42,0.09);
+    --pro-shadow-elevated: 0 24px 52px rgba(15,23,42,0.14);
+    --pro-motion-fast: 180ms;
+    --pro-motion-base: 240ms;
+    --pro-motion-ease: cubic-bezier(.4,0,.2,1);
+    --pro-text-xs: 12px;
+    --pro-text-sm: 14px;
+    --pro-text-md: 16px;
+    --pro-text-lg: 20px;
+    --pro-text-xl: 28px;
+}
+
 /* ========================= */
 /* CONTAINER */
 /* ========================= */
 
 .app-container {
-    padding: 40px 60px;
+    max-width: 1560px;
+    margin: 0 auto;
+    padding: var(--pro-space-8) 60px;
 }
 
 /* ========================= */
@@ -36,13 +65,14 @@ html, button, input, select, textarea {
 .app-header {
     background: linear-gradient(135deg, #111827, #1f2937);
     padding: 22px 40px;
-    border-radius: 22px;
+    border-radius: var(--pro-radius-lg);
     box-shadow: 0 25px 60px rgba(0,0,0,0.15);
+    border: 1px solid rgba(255,255,255,0.12);
     color: white;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 35px;
+    margin-bottom: 36px;
 }
 
 .app-header h1 {
@@ -2316,5 +2346,197 @@ button:disabled {
 
     body.mobile-calendar-mode .dashboard-mini {
         grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* ========================= */
+/* PRO POLISH LAYER (SAFE)   */
+/* ========================= */
+
+:root {
+    --pro-brand: #2a9d8f;
+    --pro-brand-dark: #21867a;
+    --pro-ink: #111827;
+    --pro-muted: #6b7280;
+    --pro-surface: rgba(255,255,255,0.78);
+    --pro-ring: rgba(42,157,143,0.22);
+}
+
+.app-header {
+    position: relative;
+    overflow: hidden;
+}
+
+.app-header::after {
+    content: "";
+    position: absolute;
+    right: -80px;
+    top: -80px;
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,0.18), rgba(255,255,255,0));
+    pointer-events: none;
+}
+
+.dashboard-mini {
+    align-items: stretch;
+}
+
+.dashboard-card {
+    position: relative;
+    overflow: hidden;
+    background: var(--pro-surface);
+    border: var(--pro-surface-border);
+    box-shadow: var(--pro-shadow-soft);
+}
+
+.dashboard-card::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 3px;
+    background: linear-gradient(90deg, rgba(42,157,143,0.58), rgba(17,24,39,0.2));
+    opacity: 0.6;
+}
+
+.dashboard-card:hover {
+    box-shadow: var(--pro-shadow-elevated);
+}
+
+.dashboard-label {
+    color: var(--pro-muted);
+}
+
+.dashboard-value {
+    line-height: 1.05;
+    margin-top: 2px;
+}
+
+.calendar-filters-card,
+.calendar-wrapper {
+    border: var(--pro-surface-border);
+    box-shadow: var(--pro-shadow-soft);
+}
+
+.calendar-wrapper {
+    position: relative;
+    overflow: hidden;
+}
+
+.calendar-wrapper::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(42,157,143,0.45), rgba(17,24,39,0.08));
+    pointer-events: none;
+    z-index: 1;
+}
+
+.fc .fc-scrollgrid {
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid rgba(17,24,39,0.08);
+}
+
+.fc .fc-toolbar.fc-header-toolbar {
+    margin-bottom: 16px;
+}
+
+.fc .fc-timegrid-col.fc-day-today {
+    box-shadow: inset 0 0 0 1px rgba(42,157,143,0.18);
+}
+
+.fc .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(42,157,143,0.18);
+    color: #14564e !important;
+}
+
+.fc-event {
+    backdrop-filter: saturate(1.08);
+    -webkit-backdrop-filter: saturate(1.08);
+}
+
+.modal-content {
+    border: var(--pro-surface-border);
+}
+
+.modal-shell {
+    gap: 14px;
+}
+
+.modal-title-premium {
+    margin-bottom: 16px;
+}
+
+.modal-footer {
+    padding-top: 12px;
+}
+
+.input-apple,
+input,
+select,
+textarea {
+    transition: border-color var(--pro-motion-fast) var(--pro-motion-ease),
+                box-shadow var(--pro-motion-fast) var(--pro-motion-ease),
+                background var(--pro-motion-fast) var(--pro-motion-ease);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 4px var(--pro-ring) !important;
+}
+
+.btn-primary,
+.btn-apple-primary,
+.btn-apple-ghost,
+.btn-promemoria,
+.btn-danger {
+    transition: transform var(--pro-motion-fast) var(--pro-motion-ease),
+                box-shadow var(--pro-motion-base) var(--pro-motion-ease),
+                background var(--pro-motion-fast) var(--pro-motion-ease),
+                color var(--pro-motion-fast) var(--pro-motion-ease),
+                border-color var(--pro-motion-fast) var(--pro-motion-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-card,
+    .calendar-wrapper,
+    .fc-event,
+    .btn-primary,
+    .btn-apple-primary,
+    .btn-apple-ghost {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+
+@media (max-width: 900px) {
+    body.mobile-calendar-mode .calendar-filters-card {
+        padding: 14px;
+        border-radius: 16px;
+    }
+
+    body.mobile-calendar-mode .calendar-wrapper {
+        border-radius: 16px;
+        box-shadow: 0 14px 30px rgba(15,23,42,0.09);
+    }
+
+    body.mobile-calendar-mode .fc .fc-scrollgrid {
+        border-radius: 12px;
     }
 }
