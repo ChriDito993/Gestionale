@@ -64,7 +64,7 @@
             <span class="dashboard-meta">Archivio anagrafico</span>
         </div>
 
-        <div class="dashboard-card">
+        <div class="dashboard-card dashboard-card-interactive" id="openAppuntamentiOggi">
             <div class="dashboard-card-head">
                 <span class="dashboard-label">Appuntamenti Oggi</span>
             </div>
@@ -74,7 +74,7 @@
             </span>
         </div>
 
-        <div class="dashboard-card">
+        <div class="dashboard-card dashboard-card-interactive" id="openAppuntamentiSettimana">
             <div class="dashboard-card-head">
                 <span class="dashboard-label">Appuntamenti Settimana</span>
             </div>
@@ -263,6 +263,18 @@
             Pacchetti Attivi
         </h3>
         <div id="pacchettiAttiviList"></div>
+    </div>
+</div>
+
+<!-- MODAL APPUNTAMENTI DASHBOARD -->
+<div id="dashboardAppModal" class="modal">
+    <div class="modal-content modal-card-premium modal-shell dashboard-list-modal">
+        <span class="close" id="closeDashboardAppModal">✖</span>
+        <h3 id="dashboardAppModalTitle" class="modal-title-premium modal-title-bar-premium">
+            Appuntamenti
+        </h3>
+        <div id="dashboardAppModalSubtitle" class="dashboard-app-subtitle"></div>
+        <div id="dashboardAppList" class="dashboard-app-list"></div>
     </div>
 </div>
 <script src="{{ static_file('main.js') }}"></script>

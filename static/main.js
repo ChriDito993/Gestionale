@@ -200,19 +200,48 @@ async function fetchJsonOrThrow(url, options = {}, fallbackMessage = "Operazione
     return payload;
 }
 
-function buildAppuntamentiUrl(fetchInfo) {
+function buildAppuntamentiUrl(fetchInfo, options = {}) {
+    const { includeFilters = true } = options;
     const params = new URLSearchParams({
         start: fetchInfo.startStr,
         end: fetchInfo.endStr
     });
 
-    if (filtriCalendario.stato) params.set("stato", filtriCalendario.stato);
-    if (filtriCalendario.servizio_id) params.set("servizio_id", filtriCalendario.servizio_id);
-    if (filtriCalendario.cliente) params.set("cliente", filtriCalendario.cliente);
-    if (filtriCalendario.data_da) params.set("data_da", filtriCalendario.data_da);
-    if (filtriCalendario.data_a) params.set("data_a", filtriCalendario.data_a);
+    if (includeFilters) {
+        if (filtriCalendario.stato) params.set("stato", filtriCalendario.stato);
+        if (filtriCalendario.servizio_id) params.set("servizio_id", filtriCalendario.servizio_id);
+        if (filtriCalendario.cliente) params.set("cliente", filtriCalendario.cliente);
+        if (filtriCalendario.data_da) params.set("data_da", filtriCalendario.data_da);
+        if (filtriCalendario.data_a) params.set("data_a", filtriCalendario.data_a);
+    }
 
     return `/api/appuntamenti?${params.toString()}`;
+}
+
+function getSettimanaRange(baseDate) {
+    const day = baseDate.getDay();
+    const diffToMonday = (day === 0 ? -6 : 1) - day;
+    const monday = new Date(baseDate);
+    monday.setDate(baseDate.getDate() + diffToMonday);
+    monday.setHours(0, 0, 0, 0);
+    const sundayExclusive = new Date(monday.getTime() + 7 * 86400000);
+    return { monday, sundayExclusive };
+}
+
+function formatTimeHm(date) {
+    return date.toLocaleTimeString("it-IT", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+    });
+}
+
+function formatDateLabel(date) {
+    return date.toLocaleDateString("it-IT", {
+        weekday: "short",
+        day: "2-digit",
+        month: "short"
+    });
 }
 
 function aggiornaFiltriCalendarioDaUI(refetch = true) {
@@ -550,13 +579,7 @@ buttonText: {
         const eventi = calendar.getEvents();
         const oggi = calendar.getDate(); // usa la settimana visualizzata nel calendario
 
-        const day = oggi.getDay();
-        const diffToMonday = (day === 0 ? -6 : 1) - day;
-        const monday = new Date(oggi);
-        monday.setDate(oggi.getDate() + diffToMonday);
-        monday.setHours(0,0,0,0);
-
-        const sunday = new Date(monday.getTime() + 7 * 86400000);
+        const { monday, sundayExclusive } = getSettimanaRange(oggi);
 
         let count = 0;
 
@@ -567,7 +590,7 @@ buttonText: {
 
             const dataEvento = evento.start;
 
-            if (dataEvento >= monday && dataEvento < sunday) {
+            if (dataEvento >= monday && dataEvento < sundayExclusive) {
                 count++; // conta 1 appuntamento per evento (non per slot)
             }
         });
@@ -578,7 +601,7 @@ buttonText: {
         // 🔥 Range settimana dinamico (Lun - Dom)
         const options = { day: '2-digit', month: 'short' };
         const lunediLabel = monday.toLocaleDateString('it-IT', options);
-        const domenica = new Date(sunday.getTime() - 86400000);
+        const domenica = new Date(sundayExclusive.getTime() - 86400000);
         const domenicaLabel = domenica.toLocaleDateString('it-IT', options);
 
         const weekSub = document.getElementById("weekRangeLabel");
@@ -684,6 +707,195 @@ buttonText: {
         closePacchettiModal.addEventListener("click", function() {
             pacchettiModal.style.display = "none";
         });
+    }
+
+    // ===============================
+    // MODAL APPUNTAMENTI DASHBOARD
+    // ===============================
+
+    const openAppuntamentiOggiBtn = document.getElementById("openAppuntamentiOggi");
+    const openAppuntamentiSettimanaBtn = document.getElementById("openAppuntamentiSettimana");
+    const dashboardAppModal = document.getElementById("dashboardAppModal");
+    const closeDashboardAppModalBtn = document.getElementById("closeDashboardAppModal");
+    const dashboardAppModalTitle = document.getElementById("dashboardAppModalTitle");
+    const dashboardAppModalSubtitle = document.getElementById("dashboardAppModalSubtitle");
+    const dashboardAppList = document.getElementById("dashboardAppList");
+
+    const statoLabelMap = {
+        prenotato: "Prenotato",
+        svolto: "Svolto",
+        completato: "Completato",
+        annullato: "Annullato",
+        no_show: "No Show"
+    };
+
+    function normalizzaEventoDashboard(rawEvent) {
+        const startValue = rawEvent?.start instanceof Date ? rawEvent.start : new Date(rawEvent?.start);
+        if (!(startValue instanceof Date) || Number.isNaN(startValue.getTime())) return null;
+
+        let endValue = null;
+        if (rawEvent?.end) {
+            endValue = rawEvent.end instanceof Date ? rawEvent.end : new Date(rawEvent.end);
+            if (Number.isNaN(endValue.getTime())) endValue = null;
+        }
+
+        const extended = rawEvent?.extendedProps || {};
+        const clienti = (extended.clienti || "").trim() || "Cliente non specificato";
+
+        return {
+            id: rawEvent.id,
+            start: startValue,
+            end: endValue,
+            clienti: clienti,
+            servizio: (extended.servizio || rawEvent.title || "Servizio").trim(),
+            stato: (extended.stato || "").trim()
+        };
+    }
+
+    function renderDashboardListaAppuntamenti(appuntamenti, emptyMessage) {
+        if (!dashboardAppList) return;
+
+        dashboardAppList.innerHTML = "";
+
+        if (!appuntamenti.length) {
+            const emptyState = document.createElement("div");
+            emptyState.className = "dashboard-app-empty";
+            emptyState.textContent = emptyMessage;
+            dashboardAppList.appendChild(emptyState);
+            return;
+        }
+
+        appuntamenti.forEach(app => {
+            const item = document.createElement("article");
+            item.className = "dashboard-app-item";
+
+            const topRow = document.createElement("div");
+            topRow.className = "dashboard-app-top";
+
+            const dateEl = document.createElement("span");
+            dateEl.className = "dashboard-app-date";
+            dateEl.textContent = formatDateLabel(app.start);
+
+            const timeEl = document.createElement("span");
+            timeEl.className = "dashboard-app-time";
+            if (app.end) {
+                timeEl.textContent = `${formatTimeHm(app.start)} - ${formatTimeHm(app.end)}`;
+            } else {
+                timeEl.textContent = formatTimeHm(app.start);
+            }
+
+            topRow.appendChild(dateEl);
+            topRow.appendChild(timeEl);
+
+            const clienteEl = document.createElement("div");
+            clienteEl.className = "dashboard-app-clienti";
+            clienteEl.textContent = app.clienti;
+
+            const bottomRow = document.createElement("div");
+            bottomRow.className = "dashboard-app-bottom";
+
+            const servizioEl = document.createElement("div");
+            servizioEl.className = "dashboard-app-servizio";
+            servizioEl.textContent = app.servizio;
+
+            bottomRow.appendChild(servizioEl);
+
+            if (app.stato) {
+                const statoEl = document.createElement("span");
+                statoEl.className = "dashboard-app-stato";
+                statoEl.textContent = statoLabelMap[app.stato] || app.stato;
+                bottomRow.appendChild(statoEl);
+            }
+
+            item.appendChild(topRow);
+            item.appendChild(clienteEl);
+            item.appendChild(bottomRow);
+            dashboardAppList.appendChild(item);
+        });
+    }
+
+    function apriDashboardAppModal({ title, subtitle }) {
+        if (!dashboardAppModal || !dashboardAppModalTitle || !dashboardAppModalSubtitle || !dashboardAppList) return;
+        dashboardAppModalTitle.textContent = title;
+        dashboardAppModalSubtitle.textContent = subtitle;
+        dashboardAppList.innerHTML = '<div class="dashboard-app-loading">Caricamento appuntamenti...</div>';
+        dashboardAppModal.style.display = "block";
+    }
+
+    async function apriDashboardAppuntamentiOggi() {
+        const oggi = new Date();
+        const inizioGiorno = new Date(oggi);
+        inizioGiorno.setHours(0, 0, 0, 0);
+        const fineGiorno = new Date(inizioGiorno.getTime() + 86400000);
+
+        const subtitle = oggi.toLocaleDateString("it-IT", {
+            weekday: "long",
+            day: "2-digit",
+            month: "long",
+            year: "numeric"
+        });
+
+        apriDashboardAppModal({
+            title: "Appuntamenti di Oggi",
+            subtitle: subtitle
+        });
+
+        try {
+            const url = buildAppuntamentiUrl({
+                startStr: formatDateTimeForApi(inizioGiorno),
+                endStr: formatDateTimeForApi(fineGiorno)
+            }, { includeFilters: false });
+
+            const data = await fetchJsonOrThrow(
+                url,
+                { cache: "no-store" },
+                "Errore caricamento appuntamenti di oggi"
+            );
+
+            const appuntamenti = (Array.isArray(data) ? data : [])
+                .map(normalizzaEventoDashboard)
+                .filter(Boolean)
+                .sort((a, b) => a.start - b.start);
+
+            renderDashboardListaAppuntamenti(appuntamenti, "Nessun appuntamento per oggi.");
+        } catch (error) {
+            renderDashboardListaAppuntamenti([], "Errore caricamento appuntamenti.");
+            mostraToast(error.message || "Errore caricamento appuntamenti di oggi", "error");
+        }
+    }
+
+    function apriDashboardAppuntamentiSettimana() {
+        const riferimento = calendar.getDate();
+        const { monday, sundayExclusive } = getSettimanaRange(riferimento);
+        const domenica = new Date(sundayExclusive.getTime() - 86400000);
+
+        const subtitle = `${monday.toLocaleDateString("it-IT", { day: "2-digit", month: "short" })} - ${domenica.toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" })}`;
+
+        apriDashboardAppModal({
+            title: "Appuntamenti della Settimana",
+            subtitle: subtitle
+        });
+
+        const appuntamenti = calendar.getEvents()
+            .filter(evento => evento.display !== "background")
+            .map(normalizzaEventoDashboard)
+            .filter(Boolean)
+            .filter(evento => evento.start >= monday && evento.start < sundayExclusive)
+            .sort((a, b) => a.start - b.start);
+
+        renderDashboardListaAppuntamenti(appuntamenti, "Nessun appuntamento nella settimana corrente.");
+    }
+
+    if (openAppuntamentiOggiBtn) {
+        openAppuntamentiOggiBtn.addEventListener("click", apriDashboardAppuntamentiOggi);
+    }
+
+    if (openAppuntamentiSettimanaBtn) {
+        openAppuntamentiSettimanaBtn.addEventListener("click", apriDashboardAppuntamentiSettimana);
+    }
+
+    if (closeDashboardAppModalBtn) {
+        closeDashboardAppModalBtn.addEventListener("click", chiudiDashboardAppModal);
     }
 
     if (mobileMode) {
@@ -1022,6 +1234,12 @@ function chiudiModificaModal() {
     requestAnimationFrame(() => modal.style.display = "none");
 }
 
+function chiudiDashboardAppModal() {
+    const modal = document.getElementById("dashboardAppModal");
+    if (!modal) return;
+    requestAnimationFrame(() => modal.style.display = "none");
+}
+
 
 /* ===============================
    CHIUSURA MODALI (CLICK FUORI + ESC)
@@ -1033,6 +1251,7 @@ window.addEventListener("click", function(event) {
     const clienteModal = document.getElementById("clienteModal");
     const modificaModal = document.getElementById("modificaModal");
     const pacchettiModal = document.getElementById("pacchettiModal");
+    const dashboardAppModal = document.getElementById("dashboardAppModal");
 
     if (eventoModal && event.target === eventoModal) {
         chiudiModal();
@@ -1049,6 +1268,10 @@ window.addEventListener("click", function(event) {
     if (pacchettiModal && event.target === pacchettiModal) {
         pacchettiModal.style.display = "none";
     }
+
+    if (dashboardAppModal && event.target === dashboardAppModal) {
+        chiudiDashboardAppModal();
+    }
 }, { passive: true });
 
 window.addEventListener("keydown", function(event) {
@@ -1058,6 +1281,7 @@ window.addEventListener("keydown", function(event) {
     const eventoModal = document.getElementById("eventoModal");
     const clienteModal = document.getElementById("clienteModal");
     const modificaModal = document.getElementById("modificaModal");
+    const dashboardAppModal = document.getElementById("dashboardAppModal");
 
     if (eventoModal && eventoModal.style.display === "block") {
         chiudiModal();
@@ -1069,6 +1293,10 @@ window.addEventListener("keydown", function(event) {
 
     if (modificaModal && modificaModal.style.display === "block") {
         chiudiModificaModal();
+    }
+
+    if (dashboardAppModal && dashboardAppModal.style.display === "block") {
+        chiudiDashboardAppModal();
     }
 }, { passive: true });
 

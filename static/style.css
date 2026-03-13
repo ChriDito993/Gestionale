@@ -2540,3 +2540,129 @@ textarea:focus-visible {
         border-radius: 12px;
     }
 }
+
+/* ========================= */
+/* DASHBOARD APPOINTMENT MODAL */
+/* ========================= */
+
+.dashboard-list-modal {
+    max-height: min(88vh, 760px);
+    overflow: hidden;
+}
+
+.dashboard-app-subtitle {
+    margin-top: -8px;
+    margin-bottom: 2px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #6b7280;
+    text-transform: uppercase;
+}
+
+.dashboard-app-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 6px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    min-height: 0;
+    flex: 1 1 auto;
+    padding-right: 4px;
+}
+
+.dashboard-app-loading,
+.dashboard-app-empty {
+    border-radius: 14px;
+    border: 1px dashed rgba(17,24,39,0.15);
+    background: rgba(248,250,252,0.9);
+    color: #6b7280;
+    font-weight: 600;
+    font-size: 13px;
+    padding: 14px 16px;
+    text-align: center;
+}
+
+.dashboard-app-item {
+    border-radius: 16px;
+    padding: 14px 16px;
+    border: 1px solid rgba(17,24,39,0.08);
+    background: rgba(255,255,255,0.9);
+    box-shadow: 0 10px 24px rgba(15,23,42,0.06);
+    display: grid;
+    gap: 8px;
+}
+
+.dashboard-app-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.dashboard-app-date {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: #334155;
+    text-transform: uppercase;
+}
+
+.dashboard-app-time {
+    font-size: 13px;
+    font-weight: 700;
+    color: #111827;
+}
+
+.dashboard-app-clienti {
+    font-size: 15px;
+    font-weight: 600;
+    color: #0f172a;
+    line-height: 1.35;
+}
+
+.dashboard-app-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.dashboard-app-servizio {
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+}
+
+.dashboard-app-stato {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: #2a9d8f;
+    border-radius: 999px;
+    border: 1px solid rgba(42,157,143,0.28);
+    background: rgba(42,157,143,0.12);
+    padding: 4px 10px;
+    white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+    .dashboard-list-modal {
+        max-height: min(86vh, 720px);
+    }
+
+    .dashboard-app-item {
+        padding: 12px 13px;
+    }
+
+    .dashboard-app-clienti {
+        font-size: 14px;
+    }
+
+    .dashboard-app-bottom {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
