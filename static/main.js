@@ -600,18 +600,25 @@ buttonText: {
     const openEventId = params.get("open_event");
 
     if (openEventId && !mobileMode) {
-        calendar.on('eventsSet', function() {
+        let autoOpenHandled = false;
+        const cleanUrl = window.location.origin + window.location.pathname;
+
+        const tryAutoOpenEventFromUrl = function() {
+            if (autoOpenHandled) return;
             const eventToOpen = calendar.getEventById(openEventId);
+            if (!eventToOpen) return;
 
-            if (eventToOpen) {
-                window.eventoSelezionato = eventToOpen;
-                apriModificaModal();
+            autoOpenHandled = true;
+            window.eventoSelezionato = eventToOpen;
+            apriModificaModal();
 
-                // Pulisce URL per evitare riapertura al refresh
-                const cleanUrl = window.location.origin + window.location.pathname;
-                window.history.replaceState({}, document.title, cleanUrl);
-            }
-        });
+            // Pulisce URL per evitare riapertura al refresh
+            window.history.replaceState({}, document.title, cleanUrl);
+            calendar.off('eventsSet', tryAutoOpenEventFromUrl);
+        };
+
+        calendar.on('eventsSet', tryAutoOpenEventFromUrl);
+        tryAutoOpenEventFromUrl();
     } else if (openEventId && mobileMode) {
         const cleanUrl = window.location.origin + window.location.pathname;
         window.history.replaceState({}, document.title, cleanUrl);
