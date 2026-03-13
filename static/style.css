@@ -1815,6 +1815,12 @@ button:disabled {
     color: inherit;
 }
 
+.cliente-dettaglio-page .cliente-app-info-link {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .cliente-dettaglio-page .cliente-app-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 22px 45px rgba(15,23,42,0.12);

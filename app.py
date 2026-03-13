@@ -1066,6 +1066,7 @@ def dettaglio_cliente(cliente_id):
             "id": appo["id"],
             "data_formattata": data_formattata,
             "servizio": appo["servizi"]["nome"],
+            "stato": appo.get("stato"),
             "numero_seduta": appo.get("numero_seduta"),
             "condivisi": condivisi
         })

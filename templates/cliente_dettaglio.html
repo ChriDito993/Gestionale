@@ -118,7 +118,7 @@
                 </div>
 
                 <div class="pacchetto-progress-track">
-                    <div class="pacchetto-progress-fill" style="width: {{ progress_width }}%;"></div>
+                    <div class="pacchetto-progress-fill" data-progress="{{ progress_width }}"></div>
                 </div>
 
                 <form method="POST" action="/chiudi_pacchetto/{{ pac.id }}" class="pacchetto-close-form">
@@ -182,23 +182,25 @@
         {% if storico_appuntamenti and storico_appuntamenti|length > 0 %}
             <div id="storicoSection" class="cliente-app-section storico-collapsed">
                 {% for app in storico_appuntamenti %}
-                <a href="/?open_event={{ app.id }}" class="cliente-app-card past cliente-app-link">
-                    <div class="cliente-app-info">
-                        <span class="cliente-app-timeline-dot" aria-hidden="true"></span>
-                        <div class="cliente-app-date">
-                            {{ app.data_formattata }}
-                        </div>
+                <article class="cliente-app-card past">
+                    <a href="/?open_event={{ app.id }}" class="cliente-app-link cliente-app-info-link">
+                        <div class="cliente-app-info">
+                            <span class="cliente-app-timeline-dot" aria-hidden="true"></span>
+                            <div class="cliente-app-date">
+                                {{ app.data_formattata }}
+                            </div>
 
-                        <div class="cliente-app-service">
-                            {{ app.servizio }}
+                            <div class="cliente-app-service">
+                                {{ app.servizio }}
 
-                            {% if app.numero_seduta %}
-                                <span class="seduta-badge">
-                                    Seduta {{ app.numero_seduta }}
-                                </span>
-                            {% endif %}
+                                {% if app.numero_seduta %}
+                                    <span class="seduta-badge">
+                                        Seduta {{ app.numero_seduta }}
+                                    </span>
+                                {% endif %}
+                            </div>
                         </div>
-                    </div>
+                    </a>
 
                     <form method="POST" action="/update_stato" class="cliente-app-actions">
                         <input type="hidden" name="appuntamento_id" value="{{ app.id }}">
@@ -211,7 +213,7 @@
 
                         <button type="submit" class="btn-apple-primary btn-small">Salva</button>
                     </form>
-                </a>
+                </article>
                 {% endfor %}
             </div>
         {% else %}
@@ -322,6 +324,18 @@ function eliminaCliente(clienteId) {
         }
     });
 }
+
+function applicaProgressPacchetti() {
+    document.querySelectorAll(".pacchetto-progress-fill[data-progress]").forEach((el) => {
+        const rawValue = Number(el.dataset.progress);
+        const safeValue = Number.isFinite(rawValue)
+            ? Math.max(0, Math.min(100, rawValue))
+            : 0;
+        el.style.width = safeValue + "%";
+    });
+}
+
+applicaProgressPacchetti();
 </script>
 
 </body>
