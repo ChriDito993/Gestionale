@@ -1159,12 +1159,39 @@ def genera_promemoria(cliente_id):
 
     now = datetime.now().isoformat()
 
-    appuntamenti_raw = supabase.table("appuntamenti") \
-        .select("*, servizi(nome)") \
+    # Include appuntamenti condivisi (tabella ponte) + fallback legacy (cliente_id diretto)
+    relazioni = supabase.table("appuntamenti_clienti") \
+        .select("appuntamento_id") \
+        .eq("cliente_id", cliente_id) \
+        .execute().data or []
+
+    appuntamenti_ids = {
+        rel.get("appuntamento_id")
+        for rel in relazioni
+        if rel.get("appuntamento_id")
+    }
+
+    legacy_rows = supabase.table("appuntamenti") \
+        .select("id") \
         .eq("cliente_id", cliente_id) \
         .gte("start_datetime", now) \
-        .order("start_datetime") \
-        .execute().data
+        .execute().data or []
+
+    for row in legacy_rows:
+        app_id = row.get("id")
+        if app_id:
+            appuntamenti_ids.add(app_id)
+
+    appuntamenti_raw = []
+    if appuntamenti_ids:
+        appuntamenti_raw = supabase.table("appuntamenti") \
+            .select("*, servizi(nome)") \
+            .in_("id", list(appuntamenti_ids)) \
+            .gte("start_datetime", now) \
+            .order("start_datetime") \
+            .execute().data or []
+
+    appuntamenti_raw.sort(key=lambda appo: appo.get("start_datetime", ""))
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
@@ -1194,7 +1221,10 @@ def genera_promemoria(cliente_id):
         testo = f"{data_formattata} - {appo['servizi']['nome']}"
         lista.append(ListItem(Paragraph(testo, styles["Normal"])))
 
-    elements.append(ListFlowable(lista, bulletType="bullet"))
+    if not lista:
+        elements.append(Paragraph("Nessun appuntamento futuro registrato.", styles["Normal"]))
+    else:
+        elements.append(ListFlowable(lista, bulletType="bullet"))
     elements.append(Spacer(1, 0.5 * inch))
 
     oggi = datetime.now().strftime("%d/%m/%Y")
