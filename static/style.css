@@ -863,6 +863,80 @@ select {
     background-color: #f1f5f9;
 }
 
+.quick-cliente-create {
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(42,157,143,0.26);
+    background: rgba(42,157,143,0.06);
+}
+
+.quick-create-hidden {
+    display: none !important;
+}
+
+.quick-cliente-hint {
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 8px;
+}
+
+.quick-cliente-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.quick-cliente-grid .input-apple {
+    margin-top: 0;
+}
+
+.quick-cliente-btn {
+    width: 100%;
+    margin-top: 10px;
+    border-color: rgba(42,157,143,0.35);
+    background: rgba(255,255,255,0.88);
+}
+
+.quick-cliente-btn:hover {
+    background: rgba(42,157,143,0.12);
+}
+
+.quick-pacchetto-assign {
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(17,24,39,0.1);
+    background: rgba(248,250,252,0.9);
+    display: grid;
+    gap: 8px;
+}
+
+.quick-pacchetto-hint {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    line-height: 1.35;
+}
+
+.quick-pacchetto-btn {
+    width: 100%;
+    background: #ffffff;
+    border-color: rgba(17,24,39,0.16);
+}
+
+.quick-pacchetto-btn:hover {
+    background: #f1f5f9;
+}
+
+@media (max-width: 760px) {
+    .quick-cliente-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* ========================= */
 /* ANIMAZIONI */
 /* ========================= */

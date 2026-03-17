@@ -3,6 +3,7 @@ let calendar;
 let selectedStart;
 let selectedEnd;
 let serviziData = [];
+let tipiPacchettoData = [];
 let tuttiClienti = [];
 let clientiSelezionati = [];
 const MOBILE_BREAKPOINT = 900;
@@ -649,6 +650,8 @@ buttonText: {
 
     caricaClienti(); // ora carica array per ricerca
     caricaServizi();
+    caricaTipiPacchetto();
+    inizializzaAssegnaPacchettoRapido();
     aggiornaDashboardOggi();
 
     // ===============================
@@ -907,11 +910,11 @@ buttonText: {
 function caricaPacchettiCliente(clienteId) {
 
     const select = document.getElementById("pacchettoSelect");
-    if (!select) return;
+    if (!select) return Promise.resolve([]);
 
     select.innerHTML = '<option value="">Nessun pacchetto</option>';
 
-    fetch('/api/pacchetti_attivi/' + clienteId)
+    return fetch('/api/pacchetti_attivi/' + clienteId)
         .then(res => res.json())
         .then(data => {
 
@@ -924,7 +927,162 @@ function caricaPacchettiCliente(clienteId) {
 
                 select.appendChild(option);
             });
+
+            aggiornaQuickAssegnaPacchettoUI(data);
+            return data;
+        })
+        .catch(error => {
+            console.error("Errore caricamento pacchetti cliente:", error);
+            aggiornaQuickAssegnaPacchettoUI([]);
+            return [];
         });
+}
+
+function popolaTipiPacchettoSelectRapido() {
+    const select = document.getElementById("quickTipoPacchettoSelect");
+    if (!select) return;
+
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">Seleziona pacchetto da assegnare</option>';
+
+    tipiPacchettoData.forEach(tipo => {
+        const option = document.createElement("option");
+        option.value = tipo.id;
+        option.textContent = `${tipo.nome} (${tipo.numero_sedute} sedute)`;
+        if (tipo.servizio_id) option.dataset.servizio = tipo.servizio_id;
+        select.appendChild(option);
+    });
+
+    if (currentValue && Array.from(select.options).some(opt => String(opt.value) === String(currentValue))) {
+        select.value = currentValue;
+    }
+}
+
+function caricaTipiPacchetto() {
+    return fetch("/api/tipi_pacchetto")
+        .then(res => res.json())
+        .then(data => {
+            tipiPacchettoData = Array.isArray(data) ? data : [];
+            popolaTipiPacchettoSelectRapido();
+            aggiornaQuickAssegnaPacchettoUI();
+            return tipiPacchettoData;
+        })
+        .catch(error => {
+            console.error("Errore caricamento tipi pacchetto:", error);
+            tipiPacchettoData = [];
+            popolaTipiPacchettoSelectRapido();
+            aggiornaQuickAssegnaPacchettoUI();
+            return [];
+        });
+}
+
+function aggiornaQuickAssegnaPacchettoUI(pacchettiAttivi = null) {
+    const box = document.getElementById("quickPacchettoAssignBox");
+    const hint = document.getElementById("quickPacchettoHint");
+    const tipoSelect = document.getElementById("quickTipoPacchettoSelect");
+    const btn = document.getElementById("btnQuickAssegnaPacchetto");
+    const clientePrimario = clientiSelezionati[0];
+
+    if (!box || !hint || !tipoSelect || !btn) return;
+
+    const hasTipiPacchetto = tipiPacchettoData.length > 0;
+    tipoSelect.disabled = !hasTipiPacchetto;
+    btn.disabled = !hasTipiPacchetto;
+
+    if (!clientePrimario) {
+        box.classList.add("quick-create-hidden");
+        tipoSelect.value = "";
+        return;
+    }
+
+    box.classList.remove("quick-create-hidden");
+    const nomeCompleto = `${clientePrimario.nome || ""} ${clientePrimario.cognome || ""}`.trim();
+    const hasAttivi = Array.isArray(pacchettiAttivi) ? pacchettiAttivi.length > 0 : false;
+
+    let testo = hasAttivi
+        ? `Pacchetti attivi trovati per ${nomeCompleto}. Puoi assegnarne un altro da qui.`
+        : `Nessun pacchetto attivo per ${nomeCompleto}. Assegnane uno ora senza uscire.`;
+
+    if (clientiSelezionati.length > 1) {
+        testo += " Verrà assegnato al primo cliente selezionato.";
+    }
+
+    if (!hasTipiPacchetto) {
+        testo = "Tipi pacchetto non disponibili al momento.";
+    }
+
+    hint.textContent = testo;
+}
+
+async function assegnaPacchettoRapidoDaAppuntamento() {
+    const clientePrimario = clientiSelezionati[0];
+    const tipoSelect = document.getElementById("quickTipoPacchettoSelect");
+    const btn = document.getElementById("btnQuickAssegnaPacchetto");
+    const pacchettoSelect = document.getElementById("pacchettoSelect");
+
+    if (!clientePrimario) {
+        mostraToast("Seleziona prima un cliente", "warning");
+        return;
+    }
+
+    const tipoPacchettoId = (tipoSelect?.value || "").trim();
+    if (!tipoPacchettoId) {
+        mostraToast("Seleziona il pacchetto da assegnare", "warning");
+        return;
+    }
+
+    if (btn?.disabled) return;
+    setButtonLoading(btn, true, {
+        label: "Assegnazione...",
+        replaceContent: true
+    });
+
+    try {
+        const payload = await fetchJsonOrThrow(
+            `/api/clienti/${clientePrimario.id}/pacchetti`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ tipo_pacchetto_id: tipoPacchettoId })
+            },
+            "Errore durante assegnazione pacchetto"
+        );
+
+        const pacchetti = await caricaPacchettiCliente(clientePrimario.id);
+        const nuovoPacchettoId = payload?.pacchetto?.id;
+
+        if (nuovoPacchettoId && pacchettoSelect) {
+            pacchettoSelect.value = String(nuovoPacchettoId);
+        } else if (pacchetti.length && pacchettoSelect) {
+            const ultimo = pacchetti[pacchetti.length - 1];
+            if (ultimo?.id) pacchettoSelect.value = String(ultimo.id);
+        }
+
+        if (tipoSelect) tipoSelect.value = "";
+        mostraToast("Pacchetto assegnato e pronto per l'appuntamento", "success");
+    } catch (error) {
+        console.error("Errore assegnazione pacchetto rapido:", error);
+        mostraToast(error.message || "Errore assegnazione pacchetto", "error");
+    } finally {
+        setButtonLoading(btn, false, { replaceContent: true });
+    }
+}
+
+function inizializzaAssegnaPacchettoRapido() {
+    const btn = document.getElementById("btnQuickAssegnaPacchetto");
+    const tipoSelect = document.getElementById("quickTipoPacchettoSelect");
+    if (!btn || btn.dataset.bound === "1") return;
+
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", assegnaPacchettoRapidoDaAppuntamento);
+
+    if (tipoSelect) {
+        tipoSelect.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            assegnaPacchettoRapidoDaAppuntamento();
+        });
+    }
 }
 
 
@@ -1524,10 +1682,15 @@ function autoClosePromemoria() {
 =================================*/
 
 function caricaClienti() {
-    fetch('/api/clienti')
+    return fetch('/api/clienti')
         .then(res => res.json())
         .then(data => {
             tuttiClienti = data;
+            return data;
+        })
+        .catch(error => {
+            console.error("Errore caricamento clienti:", error);
+            return [];
         });
 }
 
@@ -1536,6 +1699,17 @@ function inizializzaRicercaClienti() {
     const searchInput = document.getElementById("searchCliente");
     const risultatiDiv = document.getElementById("risultatiClienti");
     const selezionatiDiv = document.getElementById("clientiSelezionati");
+    const quickCreateBox = document.getElementById("quickClienteCreateBox");
+    const quickHint = document.getElementById("quickClienteHint");
+    const quickNome = document.getElementById("quickNomeCliente");
+    const quickCognome = document.getElementById("quickCognomeCliente");
+    const quickTelefono = document.getElementById("quickTelefonoCliente");
+    const quickEmail = document.getElementById("quickEmailCliente");
+    const quickSaveBtn = document.getElementById("btnQuickSaveCliente");
+
+    if (!searchInput || !risultatiDiv || !selezionatiDiv) return;
+
+    let quickSeedValue = "";
 
     searchInput.value = "";
     risultatiDiv.innerHTML = "";
@@ -1543,17 +1717,155 @@ function inizializzaRicercaClienti() {
 
     let debounceTimer;
 
+    function normalizzaTesto(value) {
+        return (value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function splitNomeCognome(valoreRicerca) {
+        const clean = normalizzaTesto(valoreRicerca);
+        if (!clean) return { nome: "", cognome: "" };
+        const parti = clean.split(" ");
+        if (parti.length === 1) {
+            return { nome: parti[0], cognome: "" };
+        }
+        return {
+            nome: parti[0],
+            cognome: parti.slice(1).join(" ")
+        };
+    }
+
+    function nascondiQuickCreate(clearFields = false) {
+        if (!quickCreateBox) return;
+        quickCreateBox.classList.add("quick-create-hidden");
+        quickSeedValue = "";
+        if (clearFields) {
+            if (quickNome) quickNome.value = "";
+            if (quickCognome) quickCognome.value = "";
+            if (quickTelefono) quickTelefono.value = "";
+            if (quickEmail) quickEmail.value = "";
+        }
+    }
+
+    function mostraQuickCreate(valoreInput) {
+        if (!quickCreateBox || !quickHint) return;
+
+        const queryLabel = normalizzaTesto(valoreInput);
+        quickCreateBox.classList.remove("quick-create-hidden");
+        quickHint.textContent = `Nessun cliente trovato per "${queryLabel}". Puoi crearlo subito.`;
+
+        if (queryLabel && queryLabel !== quickSeedValue) {
+            const { nome, cognome } = splitNomeCognome(queryLabel);
+            if (quickNome) quickNome.value = nome;
+            if (quickCognome) quickCognome.value = cognome;
+            if (quickTelefono) quickTelefono.value = "";
+            if (quickEmail) quickEmail.value = "";
+            quickSeedValue = queryLabel;
+        }
+    }
+
+    async function salvaClienteRapidoDaAppuntamento() {
+        if (clientiSelezionati.length >= 2) {
+            mostraToast("Hai già selezionato 2 clienti", "info");
+            return;
+        }
+
+        const nome = normalizzaTesto(quickNome?.value);
+        const cognome = normalizzaTesto(quickCognome?.value);
+        const telefono = normalizzaTesto(quickTelefono?.value);
+        const email = normalizzaTesto(quickEmail?.value);
+
+        if (!nome || !cognome) {
+            mostraToast("Inserisci nome e cognome del cliente", "warning");
+            return;
+        }
+
+        if (quickSaveBtn?.disabled) return;
+        setButtonLoading(quickSaveBtn, true, {
+            label: "Salvataggio...",
+            replaceContent: true
+        });
+
+        try {
+            const payload = {
+                nome: nome,
+                cognome: cognome,
+                telefono: telefono || null,
+                email: email || null
+            };
+
+            const response = await fetchJsonOrThrow("/api/clienti", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            }, "Errore creazione cliente rapido");
+
+            let clienteCreato = Array.isArray(response) ? response[0] : response;
+            if (!clienteCreato || !clienteCreato.id) {
+                const refreshed = await caricaClienti();
+                clienteCreato = refreshed.find(c =>
+                    normalizzaTesto(c.nome).toLowerCase() === nome.toLowerCase() &&
+                    normalizzaTesto(c.cognome).toLowerCase() === cognome.toLowerCase()
+                );
+            } else if (!tuttiClienti.find(c => String(c.id) === String(clienteCreato.id))) {
+                tuttiClienti.unshift(clienteCreato);
+            }
+
+            if (!clienteCreato) {
+                mostraToast("Cliente creato. Cercalo per selezionarlo.", "success");
+                nascondiQuickCreate(true);
+                searchInput.value = "";
+                risultatiDiv.innerHTML = "";
+                risultatiDiv.style.display = "none";
+                return;
+            }
+
+            if (!clientiSelezionati.find(c => String(c.id) === String(clienteCreato.id))) {
+                clientiSelezionati.push(clienteCreato);
+            }
+
+            aggiornaClientiSelezionati();
+            nascondiQuickCreate(true);
+            searchInput.value = "";
+            risultatiDiv.innerHTML = "";
+            risultatiDiv.style.display = "none";
+            mostraToast("Cliente creato e selezionato", "success");
+        } catch (error) {
+            console.error("Errore creazione cliente rapido:", error);
+            mostraToast(error.message || "Errore creazione cliente", "error");
+        } finally {
+            setButtonLoading(quickSaveBtn, false, { replaceContent: true });
+        }
+    }
+
+    if (quickSaveBtn) {
+        quickSaveBtn.onclick = salvaClienteRapidoDaAppuntamento;
+    }
+
+    [quickNome, quickCognome, quickTelefono, quickEmail].forEach(input => {
+        if (!input) return;
+        input.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            salvaClienteRapidoDaAppuntamento();
+        });
+    });
+
+    nascondiQuickCreate(true);
+
     searchInput.oninput = function() {
 
         clearTimeout(debounceTimer);
 
         debounceTimer = setTimeout(() => {
 
-            const valore = this.value.toLowerCase();
+            const rawValue = this.value || "";
+            const valore = normalizzaTesto(rawValue).toLowerCase();
+            const queryLabel = normalizzaTesto(rawValue);
             risultatiDiv.innerHTML = "";
 
             if (valore.length < 1) {
                 risultatiDiv.style.display = "none";
+                nascondiQuickCreate(true);
                 return;
             }
 
@@ -1580,13 +1892,32 @@ function inizializzaRicercaClienti() {
                     }
 
                     risultatiDiv.style.display = "none";
+                    nascondiQuickCreate(true);
                     searchInput.value = "";
                 };
 
                 risultatiDiv.appendChild(div);
             });
 
-            risultatiDiv.style.display = "block";
+            risultatiDiv.style.display = filtrati.length > 0 ? "block" : "none";
+
+            const exactMatch = tuttiClienti.some(c => {
+                const fullName = `${c.nome || ""} ${c.cognome || ""}`.trim().toLowerCase();
+                return fullName === valore;
+            });
+
+            const showQuickCreate = (
+                queryLabel.length >= 2 &&
+                filtrati.length === 0 &&
+                !exactMatch &&
+                clientiSelezionati.length < 2
+            );
+
+            if (showQuickCreate) {
+                mostraQuickCreate(queryLabel);
+            } else {
+                nascondiQuickCreate(true);
+            }
 
         }, 120);
     };
@@ -1595,6 +1926,7 @@ function inizializzaRicercaClienti() {
 function aggiornaClientiSelezionati() {
 
     const selezionatiDiv = document.getElementById("clientiSelezionati");
+    if (!selezionatiDiv) return;
     selezionatiDiv.innerHTML = "";
 
     clientiSelezionati.forEach(cliente => {
@@ -1611,10 +1943,13 @@ function aggiornaClientiSelezionati() {
     });
 
     if (clientiSelezionati.length > 0) {
-    caricaPacchettiCliente(clientiSelezionati[0].id);
+        caricaPacchettiCliente(clientiSelezionati[0].id);
     } else {
-    document.getElementById("pacchettoSelect").innerHTML =
-        '<option value="">Nessun pacchetto</option>';
+        const pacchettoSelect = document.getElementById("pacchettoSelect");
+        if (pacchettoSelect) {
+            pacchettoSelect.innerHTML = '<option value="">Nessun pacchetto</option>';
+        }
+        aggiornaQuickAssegnaPacchettoUI([]);
     }
 }
 

@@ -169,6 +169,28 @@ def invalidate_calendar_cache():
     }
 
 
+def invalidate_dashboard_caches():
+    global _dashboard_cache, _pacchetti_dashboard_cache
+    _dashboard_cache = {
+        "timestamp": None,
+        "pacchetti": 0,
+        "clienti": 0
+    }
+    _pacchetti_dashboard_cache = {
+        "timestamp": None,
+        "data": []
+    }
+
+
+def assegna_pacchetto_a_cliente(cliente_id, tipo_pacchetto_id):
+    return supabase.table("pacchetti_cliente").insert({
+        "cliente_id": cliente_id,
+        "tipo_pacchetto_id": tipo_pacchetto_id,
+        "sedute_effettuate": 0,
+        "stato": "attivo"
+    }).execute()
+
+
 def normalize_datetime_local(value):
     if not value or not isinstance(value, str):
         return value
@@ -858,6 +880,35 @@ def get_pacchetti_attivi(cliente_id):
 
     return jsonify(risultati)
 
+
+@app.route("/api/tipi_pacchetto", methods=["GET"])
+@login_required
+def get_tipi_pacchetto():
+    response = supabase.table("tipi_pacchetto") \
+        .select("id,nome,numero_sedute,servizio_id,servizi(nome)") \
+        .order("nome") \
+        .execute()
+    return jsonify(response.data or [])
+
+
+@app.route("/api/clienti/<cliente_id>/pacchetti", methods=["POST"])
+@login_required
+def assegna_pacchetto_cliente_api(cliente_id):
+    data = request.json or {}
+    tipo_pacchetto_id = str(data.get("tipo_pacchetto_id") or "").strip()
+
+    if not tipo_pacchetto_id:
+        return jsonify({"error": "tipo_pacchetto_id obbligatorio"}), 400
+
+    response = assegna_pacchetto_a_cliente(cliente_id, tipo_pacchetto_id)
+    invalidate_dashboard_caches()
+
+    pacchetto = response.data[0] if response.data else None
+    return jsonify({
+        "success": True,
+        "pacchetto": pacchetto
+    })
+
 # ===============================
 # API DASHBOARD PACCHETTI ATTIVI
 # ===============================
@@ -1116,12 +1167,8 @@ def assegna_pacchetto():
     cliente_id = request.form["cliente_id"]
     tipo_pacchetto_id = request.form["tipo_pacchetto_id"]
 
-    supabase.table("pacchetti_cliente").insert({
-        "cliente_id": cliente_id,
-        "tipo_pacchetto_id": tipo_pacchetto_id,
-        "sedute_effettuate": 0,
-        "stato": "attivo"
-    }).execute()
+    assegna_pacchetto_a_cliente(cliente_id, tipo_pacchetto_id)
+    invalidate_dashboard_caches()
 
     return redirect(f"/cliente/{cliente_id}")
 
@@ -1282,6 +1329,7 @@ def chiudi_pacchetto(pacchetto_id):
         .update({"stato": "chiuso"}) \
         .eq("id", pacchetto_id) \
         .execute()
+    invalidate_dashboard_caches()
 
     return redirect(request.referrer)
 

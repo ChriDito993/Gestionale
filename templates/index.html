@@ -154,6 +154,25 @@
             <label>Cliente</label>
             <input type="text" id="searchCliente" class="input-apple" placeholder="Scrivi nome o cognome..." autocomplete="off">
             <div id="risultatiClienti" class="dropdown-risultati"></div>
+            <div id="quickClienteCreateBox" class="quick-cliente-create quick-create-hidden">
+                <div id="quickClienteHint" class="quick-cliente-hint">
+                    Cliente non trovato. Salvalo al volo.
+                </div>
+
+                <div class="quick-cliente-grid">
+                    <input type="text" id="quickNomeCliente" class="input-apple" placeholder="Nome">
+                    <input type="text" id="quickCognomeCliente" class="input-apple" placeholder="Cognome">
+                </div>
+
+                <div class="quick-cliente-grid">
+                    <input type="text" id="quickTelefonoCliente" class="input-apple" placeholder="Telefono (opzionale)">
+                    <input type="email" id="quickEmailCliente" class="input-apple" placeholder="Email (opzionale)">
+                </div>
+
+                <button type="button" id="btnQuickSaveCliente" class="btn-apple-ghost quick-cliente-btn">
+                    Salva cliente e seleziona
+                </button>
+            </div>
             <div id="clientiSelezionati" class="clienti-selezionati"></div>
         </div>
 
@@ -182,6 +201,17 @@
             <select id="pacchettoSelect" class="input-apple">
                 <option value="">Nessun pacchetto</option>
             </select>
+            <div id="quickPacchettoAssignBox" class="quick-pacchetto-assign quick-create-hidden">
+                <div id="quickPacchettoHint" class="quick-pacchetto-hint">
+                    Seleziona un cliente per assegnare un pacchetto direttamente da qui.
+                </div>
+                <select id="quickTipoPacchettoSelect" class="input-apple">
+                    <option value="">Seleziona pacchetto da assegnare</option>
+                </select>
+                <button type="button" id="btnQuickAssegnaPacchetto" class="btn-apple-ghost quick-pacchetto-btn">
+                    Assegna pacchetto ora
+                </button>
+            </div>
         </div>
 
         <div class="modal-footer">
