@@ -650,6 +650,104 @@ html, button, input, select, textarea {
     margin-top: 0;
 }
 
+.event-recurrence-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+}
+
+.event-recurrence-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #1f2937;
+    text-transform: none;
+    letter-spacing: 0;
+    margin: 0;
+    cursor: pointer;
+}
+
+.event-recurrence-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: #2a9d8f;
+}
+
+.event-recurrence-count {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.event-recurrence-count .input-apple {
+    margin-top: 0;
+}
+
+.event-recurrence-help {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: #6b7280;
+}
+
+.event-custom-slots {
+    border: 1px solid rgba(17,24,39,0.08);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.6);
+    padding: 12px;
+}
+
+.event-custom-slots-hint {
+    font-size: 12px;
+    color: #6b7280;
+    margin-bottom: 10px;
+}
+
+.event-custom-slot-list {
+    display: grid;
+    gap: 8px;
+}
+
+.event-custom-slot-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.event-custom-slot-row .input-apple {
+    margin-top: 0;
+}
+
+.event-custom-slot-remove {
+    border: 1px solid rgba(239,68,68,0.28);
+    color: #b91c1c;
+    background: rgba(254,242,242,0.9);
+    border-radius: 10px;
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.event-custom-slot-remove:hover {
+    background: rgba(254,226,226,0.95);
+}
+
+.event-custom-slot-add {
+    margin-top: 10px;
+    width: 100%;
+}
+
 #eventoModal .modal-content {
     max-height: min(88vh, 760px);
     overflow-y: auto;
@@ -702,6 +800,20 @@ html, button, input, select, textarea {
 
     #eventoModal .event-schedule-grid .schedule-field:first-child {
         grid-column: 1 / -1;
+    }
+
+    #eventoModal .event-recurrence-grid {
+        grid-template-columns: 1fr;
+    }
+
+    #eventoModal .event-custom-slot-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #eventoModal .event-custom-slot-row .event-custom-slot-remove {
+        grid-column: 1 / -1;
+        width: 100%;
+        height: 32px;
     }
 }
 

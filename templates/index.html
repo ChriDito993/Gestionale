@@ -197,6 +197,42 @@
         </div>
 
         <div class="section">
+            <label>Serie Settimanale (opzionale)</label>
+            <div class="event-recurrence-grid">
+                <label class="event-recurrence-toggle">
+                    <input type="checkbox" id="eventoRipetiSettimanale">
+                    <span>Ripeti ogni settimana</span>
+                </label>
+                <div class="event-recurrence-count">
+                    <input type="number"
+                           id="eventoNumeroOccorrenze"
+                           class="input-apple"
+                           min="2"
+                           max="52"
+                           step="1"
+                           value="2"
+                           disabled>
+                    <span class="event-recurrence-help">Totale appuntamenti</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <label>Pianificazione Smart (opzionale)</label>
+            <div class="event-custom-slots">
+                <div class="event-custom-slots-hint">
+                    Aggiungi più date/orari diversi nello stesso salvataggio.
+                </div>
+                <div id="eventoSlotPersonalizzatiList" class="event-custom-slot-list"></div>
+                <button type="button"
+                        id="btnAggiungiSlotPersonalizzato"
+                        class="btn-apple-ghost event-custom-slot-add">
+                    + Aggiungi data/orario
+                </button>
+            </div>
+        </div>
+
+        <div class="section">
             <label>Pacchetto (opzionale)</label>
             <select id="pacchettoSelect" class="input-apple">
                 <option value="">Nessun pacchetto</option>

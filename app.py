@@ -649,8 +649,10 @@ def get_appuntamenti():
 @app.route("/api/appuntamenti", methods=["POST"])
 @login_required
 def crea_appuntamento():
+    from datetime import timedelta
 
     data = request.json or {}
+    servizio_id = data.get("servizio_id")
     start_datetime = normalize_datetime_local(data.get("start_datetime"))
     end_datetime = normalize_datetime_local(data.get("end_datetime"))
 
@@ -661,20 +663,107 @@ def crea_appuntamento():
     if not clienti_ids and cliente_id_singolo:
         clienti_ids = [cliente_id_singolo]
 
+    if not isinstance(clienti_ids, list):
+        clienti_ids = [clienti_ids]
+
+    clienti_ids = [cid for cid in clienti_ids if cid not in (None, "")]
+
     # 🔒 Controllo sicurezza
     if not clienti_ids:
         return jsonify({"error": "Nessun cliente selezionato"}), 400
 
+    if not servizio_id:
+        return jsonify({"error": "Servizio obbligatorio"}), 400
+
+    slots_personalizzati_raw = data.get("slots_personalizzati") or []
+    slot_plan = []
+
+    if slots_personalizzati_raw:
+        if not isinstance(slots_personalizzati_raw, list):
+            return jsonify({"error": "slots_personalizzati deve essere una lista"}), 400
+
+        if len(slots_personalizzati_raw) > 80:
+            return jsonify({"error": "Puoi creare al massimo 80 appuntamenti per volta"}), 400
+
+        for slot in slots_personalizzati_raw:
+            if not isinstance(slot, dict):
+                return jsonify({"error": "Formato slot personalizzato non valido"}), 400
+
+            slot_start_raw = normalize_datetime_local(slot.get("start_datetime"))
+            slot_end_raw = normalize_datetime_local(slot.get("end_datetime"))
+
+            if not slot_start_raw or not slot_end_raw:
+                return jsonify({"error": "Ogni slot personalizzato richiede data inizio e fine"}), 400
+
+            try:
+                slot_start_dt = datetime.fromisoformat(slot_start_raw)
+                slot_end_dt = datetime.fromisoformat(slot_end_raw)
+            except ValueError:
+                return jsonify({"error": "Formato data non valido negli slot personalizzati"}), 400
+
+            if slot_end_dt <= slot_start_dt:
+                return jsonify({"error": "In uno slot personalizzato l'orario di fine non è valido"}), 400
+
+            slot_plan.append((slot_start_dt, slot_end_dt))
+
+        # Ordina e rimuove eventuali duplicati identici
+        slot_plan.sort(key=lambda pair: pair[0])
+        unique_slot_plan = []
+        seen_slots = set()
+        for slot_start_dt, slot_end_dt in slot_plan:
+            key = (slot_start_dt.isoformat(), slot_end_dt.isoformat())
+            if key in seen_slots:
+                continue
+            seen_slots.add(key)
+            unique_slot_plan.append((slot_start_dt, slot_end_dt))
+
+        slot_plan = unique_slot_plan
+    else:
+        if not start_datetime or not end_datetime:
+            return jsonify({"error": "Data e orario obbligatori"}), 400
+
+        try:
+            start_dt = datetime.fromisoformat(start_datetime)
+            end_dt = datetime.fromisoformat(end_datetime)
+        except ValueError:
+            return jsonify({"error": "Formato data non valido"}), 400
+
+        if end_dt <= start_dt:
+            return jsonify({"error": "L'orario di fine deve essere successivo all'inizio"}), 400
+
+        occorrenze_raw = data.get("occorrenze", 1)
+        ripeti_settimanale = bool(data.get("ripeti_settimanale"))
+
+        try:
+            occorrenze = int(occorrenze_raw)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Numero occorrenze non valido"}), 400
+
+        if occorrenze < 1 or occorrenze > 52:
+            return jsonify({"error": "Il numero di occorrenze deve essere tra 1 e 52"}), 400
+
+        if occorrenze > 1:
+            ripeti_settimanale = True
+        if not ripeti_settimanale:
+            occorrenze = 1
+
+        for index in range(occorrenze):
+            delta_giorni = timedelta(days=7 * index)
+            occ_start_dt = (start_dt + delta_giorni).replace(microsecond=0)
+            occ_end_dt = (end_dt + delta_giorni).replace(microsecond=0)
+            slot_plan.append((occ_start_dt, occ_end_dt))
+
     # 🔹 Se dal frontend viene passato un pacchetto specifico lo usiamo
     pacchetto_id = data.get("pacchetto_cliente_id")
-    numero_seduta = None
+    sedute_effettuate_corrente = None
+    numero_totale_sedute = None
 
     cliente_principale = clienti_ids[0]
 
     if pacchetto_id:
         # Recupero pacchetto selezionato
         pacchetto = supabase.table("pacchetti_cliente") \
-            .select("*, tipi_pacchetto(servizio_id)") \
+            .select("id,cliente_id,sedute_effettuate,tipi_pacchetto(servizio_id,numero_sedute)") \
             .eq("id", pacchetto_id) \
             .single() \
             .execute()
@@ -686,8 +775,9 @@ def crea_appuntamento():
             if pac["cliente_id"] == cliente_principale:
 
                 # Controllo che il servizio combaci
-                if pac["tipi_pacchetto"]["servizio_id"] == data["servizio_id"]:
-                    numero_seduta = pac["sedute_effettuate"] + 1
+                if pac["tipi_pacchetto"]["servizio_id"] == servizio_id:
+                    sedute_effettuate_corrente = pac.get("sedute_effettuate", 0) or 0
+                    numero_totale_sedute = pac["tipi_pacchetto"].get("numero_sedute") or 0
                 else:
                     pacchetto_id = None
             else:
@@ -695,7 +785,7 @@ def crea_appuntamento():
     else:
         # 🔹 Comportamento automatico precedente (fallback)
         pacchetto_attivo = supabase.table("pacchetti_cliente") \
-            .select("*, tipi_pacchetto(servizio_id)") \
+            .select("id,cliente_id,sedute_effettuate,tipi_pacchetto(servizio_id,numero_sedute)") \
             .eq("cliente_id", cliente_principale) \
             .eq("stato", "attivo") \
             .limit(1) \
@@ -704,78 +794,77 @@ def crea_appuntamento():
         if pacchetto_attivo.data:
             pac = pacchetto_attivo.data[0]
 
-            if pac["tipi_pacchetto"]["servizio_id"] == data["servizio_id"]:
+            if pac["tipi_pacchetto"]["servizio_id"] == servizio_id:
                 pacchetto_id = pac["id"]
-                numero_seduta = pac["sedute_effettuate"] + 1
+                sedute_effettuate_corrente = pac.get("sedute_effettuate", 0) or 0
+                numero_totale_sedute = pac["tipi_pacchetto"].get("numero_sedute") or 0
 
-    nuovo_appuntamento = supabase.table("appuntamenti").insert({
-        "cliente_id": cliente_principale,  # manteniamo per compatibilità
-        "servizio_id": data["servizio_id"],
-        "start_datetime": start_datetime,
-        "end_datetime": end_datetime,
-        "pacchetto_cliente_id": pacchetto_id,
-        "numero_seduta": numero_seduta,
-        "scalato": bool(pacchetto_id)
-    }).execute()
+    appuntamenti_creati_ids = []
+    primo_numero_seduta = None
 
-    appuntamento_id = nuovo_appuntamento.data[0]["id"]
+    for occ_start_dt, occ_end_dt in slot_plan:
+        occ_start_dt = occ_start_dt.replace(microsecond=0)
+        occ_end_dt = occ_end_dt.replace(microsecond=0)
 
-    # =========================
-    # SCALA SEDUTA SUBITO
-    # =========================
-    if pacchetto_id:
-        pacchetto = supabase.table("pacchetti_cliente") \
-            .select("sedute_effettuate") \
-            .eq("id", pacchetto_id) \
-            .single() \
-            .execute()
+        numero_seduta_corrente = None
+        if pacchetto_id:
+            base_sedute = sedute_effettuate_corrente or 0
+            numero_seduta_corrente = base_sedute + 1
+            if primo_numero_seduta is None:
+                primo_numero_seduta = numero_seduta_corrente
 
-        if pacchetto.data:
-            nuove_effettuate = pacchetto.data["sedute_effettuate"] + 1
+        nuovo_appuntamento = supabase.table("appuntamenti").insert({
+            "cliente_id": cliente_principale,  # manteniamo per compatibilità
+            "servizio_id": servizio_id,
+            "start_datetime": occ_start_dt.isoformat(),
+            "end_datetime": occ_end_dt.isoformat(),
+            "pacchetto_cliente_id": pacchetto_id,
+            "numero_seduta": numero_seduta_corrente,
+            "scalato": bool(pacchetto_id)
+        }).execute()
 
-            # Recupero numero totale sedute
-            tipo = supabase.table("pacchetti_cliente") \
-                .select("tipi_pacchetto(numero_sedute)") \
-                .eq("id", pacchetto_id) \
-                .single() \
-                .execute().data
+        if not nuovo_appuntamento.data:
+            return jsonify({"error": "Errore creazione appuntamento"}), 500
 
-            numero_totale = tipo["tipi_pacchetto"]["numero_sedute"]
+        appuntamento_id = nuovo_appuntamento.data[0]["id"]
+        appuntamenti_creati_ids.append(appuntamento_id)
 
-            # Se raggiunge il totale → chiudi automaticamente
+        # 🔹 Inserimento clienti nella tabella ponte
+        for cliente_id in clienti_ids:
+            try:
+                supabase.table("appuntamenti_clienti").insert({
+                    "appuntamento_id": appuntamento_id,
+                    "cliente_id": cliente_id
+                }).execute()
+            except Exception as e:
+                app.logger.warning(
+                    "Errore inserimento appuntamenti_clienti appuntamento_id=%s cliente_id=%s error=%s",
+                    appuntamento_id,
+                    cliente_id,
+                    e
+                )
+
+        # =========================
+        # SCALA SEDUTA SUBITO
+        # =========================
+        if pacchetto_id:
+            sedute_effettuate_corrente = (sedute_effettuate_corrente or 0) + 1
             nuovo_stato = "attivo"
-            if nuove_effettuate >= numero_totale:
+            if numero_totale_sedute and sedute_effettuate_corrente >= numero_totale_sedute:
                 nuovo_stato = "chiuso"
 
             supabase.table("pacchetti_cliente").update({
-                "sedute_effettuate": nuove_effettuate,
+                "sedute_effettuate": sedute_effettuate_corrente,
                 "stato": nuovo_stato
             }).eq("id", pacchetto_id).execute()
 
-    # 🔹 Inserimento clienti nella tabella ponte
-    for cliente_id in clienti_ids:
-        try:
-            supabase.table("appuntamenti_clienti").insert({
-                "appuntamento_id": appuntamento_id,
-                "cliente_id": cliente_id
-            }).execute()
-        except Exception as e:
-            app.logger.warning(
-                "Errore inserimento appuntamenti_clienti appuntamento_id=%s cliente_id=%s error=%s",
-                appuntamento_id,
-                cliente_id,
-                e
-            )
-
-    # 🔹 Risposta finale API
-    if nuovo_appuntamento.data:
-        invalidate_calendar_cache()
-        return jsonify({
-            "success": True,
-            "numero_seduta": numero_seduta
-        })
-    else:
-        return jsonify({"error": "Errore creazione appuntamento"}), 500
+    invalidate_calendar_cache()
+    return jsonify({
+        "success": True,
+        "numero_seduta": primo_numero_seduta,
+        "created_count": len(appuntamenti_creati_ids),
+        "created_ids": appuntamenti_creati_ids
+    })
 
 @app.route("/api/appuntamenti/<id>", methods=["PUT"])
 @login_required

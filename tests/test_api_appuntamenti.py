@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "test-key")
@@ -257,6 +258,100 @@ def test_post_appuntamenti_requires_at_least_one_cliente(authed_client):
     assert response.status_code == 400
     assert "Nessun cliente selezionato" in response.get_json()["error"]
     assert fake_supabase.appuntamenti == {}
+
+
+def test_post_appuntamenti_creates_weekly_series(authed_client):
+    client, fake_supabase = authed_client
+
+    response = client.post(
+        "/api/appuntamenti",
+        json={
+            "servizio_id": 10,
+            "start_datetime": "2026-03-11T10:00:00",
+            "end_datetime": "2026-03-11T11:00:00",
+            "clienti_ids": [101],
+            "ripeti_settimanale": True,
+            "occorrenze": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["created_count"] == 5
+    assert len(fake_supabase.appuntamenti) == 5
+    assert len(fake_supabase.appuntamenti_clienti) == 5
+
+    expected_starts = [
+        (datetime(2026, 3, 11, 10, 0, 0) + timedelta(days=7 * i)).isoformat()
+        for i in range(5)
+    ]
+    actual_starts = sorted(
+        row["start_datetime"] for row in fake_supabase.appuntamenti.values()
+    )
+    assert actual_starts == expected_starts
+
+
+def test_post_appuntamenti_rejects_invalid_occorrenze(authed_client):
+    client, fake_supabase = authed_client
+
+    response = client.post(
+        "/api/appuntamenti",
+        json={
+            "servizio_id": 10,
+            "start_datetime": "2026-03-11T10:00:00",
+            "end_datetime": "2026-03-11T11:00:00",
+            "clienti_ids": [101],
+            "ripeti_settimanale": True,
+            "occorrenze": 0,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "occorrenze" in response.get_json()["error"].lower()
+    assert fake_supabase.appuntamenti == {}
+
+
+def test_post_appuntamenti_creates_custom_slots_sequence(authed_client):
+    client, fake_supabase = authed_client
+
+    response = client.post(
+        "/api/appuntamenti",
+        json={
+            "servizio_id": 10,
+            "clienti_ids": [101],
+            "slots_personalizzati": [
+                {
+                    "start_datetime": "2026-03-09T15:00:00",
+                    "end_datetime": "2026-03-09T16:00:00",
+                },
+                {
+                    "start_datetime": "2026-03-12T17:00:00",
+                    "end_datetime": "2026-03-12T18:00:00",
+                },
+                {
+                    "start_datetime": "2026-03-18T19:00:00",
+                    "end_datetime": "2026-03-18T20:00:00",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["success"] is True
+    assert body["created_count"] == 3
+    assert len(fake_supabase.appuntamenti) == 3
+
+    expected_starts = [
+        "2026-03-09T15:00:00",
+        "2026-03-12T17:00:00",
+        "2026-03-18T19:00:00",
+    ]
+    actual_starts = sorted(
+        row["start_datetime"] for row in fake_supabase.appuntamenti.values()
+    )
+    assert actual_starts == expected_starts
 
 
 @pytest.mark.parametrize(

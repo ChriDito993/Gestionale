@@ -126,6 +126,173 @@ function leggiDataOraDalModalNuovoEvento() {
     return { startLocal, endLocal };
 }
 
+function sincronizzaRicorrenzaEventoUI() {
+    const repeatCheckbox = document.getElementById("eventoRipetiSettimanale");
+    const occurrencesInput = document.getElementById("eventoNumeroOccorrenze");
+    if (!repeatCheckbox || !occurrencesInput) return;
+
+    const isRecurring = !!repeatCheckbox.checked;
+    occurrencesInput.disabled = !isRecurring;
+    if (!isRecurring) {
+        occurrencesInput.value = "2";
+    }
+
+    const slotAddBtn = document.getElementById("btnAggiungiSlotPersonalizzato");
+    if (slotAddBtn) {
+        slotAddBtn.disabled = isRecurring;
+    }
+
+    document
+        .querySelectorAll("#eventoSlotPersonalizzatiList input, #eventoSlotPersonalizzatiList button")
+        .forEach(el => {
+            el.disabled = isRecurring;
+        });
+}
+
+function inizializzaRicorrenzaEvento() {
+    const repeatCheckbox = document.getElementById("eventoRipetiSettimanale");
+    const occurrencesInput = document.getElementById("eventoNumeroOccorrenze");
+
+    if (!repeatCheckbox || !occurrencesInput || repeatCheckbox.dataset.bound === "1") return;
+
+    repeatCheckbox.dataset.bound = "1";
+    repeatCheckbox.addEventListener("change", sincronizzaRicorrenzaEventoUI);
+
+    occurrencesInput.addEventListener("input", () => {
+        const parsed = Number.parseInt(occurrencesInput.value, 10);
+        if (!Number.isFinite(parsed)) return;
+        if (parsed < 2) occurrencesInput.value = "2";
+        if (parsed > 52) occurrencesInput.value = "52";
+    });
+
+    sincronizzaRicorrenzaEventoUI();
+}
+
+function resetRicorrenzaEvento() {
+    const repeatCheckbox = document.getElementById("eventoRipetiSettimanale");
+    const occurrencesInput = document.getElementById("eventoNumeroOccorrenze");
+    if (!repeatCheckbox || !occurrencesInput) return;
+
+    repeatCheckbox.checked = false;
+    occurrencesInput.value = "2";
+    sincronizzaRicorrenzaEventoUI();
+}
+
+function creaRigaSlotPersonalizzato(slot = null) {
+    const row = document.createElement("div");
+    row.className = "event-custom-slot-row";
+
+    const inputData = document.createElement("input");
+    inputData.type = "date";
+    inputData.className = "input-apple event-custom-slot-date";
+
+    const inputOraInizio = document.createElement("input");
+    inputOraInizio.type = "time";
+    inputOraInizio.step = "900";
+    inputOraInizio.className = "input-apple event-custom-slot-start";
+
+    const inputOraFine = document.createElement("input");
+    inputOraFine.type = "time";
+    inputOraFine.step = "900";
+    inputOraFine.className = "input-apple event-custom-slot-end";
+
+    if (slot?.startLocal instanceof Date && !Number.isNaN(slot.startLocal.getTime())) {
+        inputData.value = formatDateForInput(slot.startLocal);
+        inputOraInizio.value = formatTimeForInput(slot.startLocal);
+    }
+
+    if (slot?.endLocal instanceof Date && !Number.isNaN(slot.endLocal.getTime())) {
+        inputOraFine.value = formatTimeForInput(slot.endLocal);
+    }
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "event-custom-slot-remove";
+    removeBtn.setAttribute("aria-label", "Rimuovi slot");
+    removeBtn.textContent = "✕";
+    removeBtn.addEventListener("click", () => {
+        row.remove();
+    });
+
+    row.appendChild(inputData);
+    row.appendChild(inputOraInizio);
+    row.appendChild(inputOraFine);
+    row.appendChild(removeBtn);
+
+    return row;
+}
+
+function aggiungiSlotPersonalizzato(slot = null) {
+    const list = document.getElementById("eventoSlotPersonalizzatiList");
+    if (!list) return;
+
+    if (list.children.length >= 40) {
+        mostraToast("Puoi aggiungere al massimo 40 slot personalizzati", "info");
+        return;
+    }
+
+    list.appendChild(creaRigaSlotPersonalizzato(slot));
+
+    const repeatCheckbox = document.getElementById("eventoRipetiSettimanale");
+    if (repeatCheckbox?.checked) {
+        repeatCheckbox.checked = false;
+    }
+    sincronizzaRicorrenzaEventoUI();
+}
+
+function inizializzaSlotPersonalizzati() {
+    const addBtn = document.getElementById("btnAggiungiSlotPersonalizzato");
+    if (!addBtn || addBtn.dataset.bound === "1") return;
+
+    addBtn.dataset.bound = "1";
+    addBtn.addEventListener("click", () => aggiungiSlotPersonalizzato());
+}
+
+function resetSlotPersonalizzati() {
+    const list = document.getElementById("eventoSlotPersonalizzatiList");
+    if (!list) return;
+    list.innerHTML = "";
+}
+
+function leggiSlotPersonalizzatiDalModal() {
+    const rows = Array.from(document.querySelectorAll("#eventoSlotPersonalizzatiList .event-custom-slot-row"));
+    const slots = [];
+
+    for (const row of rows) {
+        const data = row.querySelector(".event-custom-slot-date")?.value || "";
+        const oraInizio = row.querySelector(".event-custom-slot-start")?.value || "";
+        const oraFine = row.querySelector(".event-custom-slot-end")?.value || "";
+
+        const rowVuota = !data && !oraInizio && !oraFine;
+        if (rowVuota) continue;
+
+        if (!data || !oraInizio || !oraFine) {
+            return {
+                error: "Compila data, ora inizio e ora fine per ogni slot aggiuntivo."
+            };
+        }
+
+        const startLocal = new Date(`${data}T${oraInizio}:00`);
+        const endLocal = new Date(`${data}T${oraFine}:00`);
+
+        if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) {
+            return {
+                error: "Formato data/orario non valido negli slot personalizzati."
+            };
+        }
+
+        if (endLocal <= startLocal) {
+            return {
+                error: "Negli slot personalizzati, l'ora fine deve essere successiva all'inizio."
+            };
+        }
+
+        slots.push({ startLocal, endLocal });
+    }
+
+    return { slots };
+}
+
 function setButtonLoading(button, loading, options = {}) {
     if (!button) return;
 
@@ -652,6 +819,8 @@ buttonText: {
     caricaServizi();
     caricaTipiPacchetto();
     inizializzaAssegnaPacchettoRapido();
+    inizializzaRicorrenzaEvento();
+    inizializzaSlotPersonalizzati();
     aggiornaDashboardOggi();
 
     // ===============================
@@ -1142,6 +1311,8 @@ function apriModal() {
     inizializzaRicercaClienti();
     aggiornaClientiSelezionati();
     sincronizzaCampiDataOraNuovoEvento();
+    resetRicorrenzaEvento();
+    resetSlotPersonalizzati();
 
     const searchInput = document.getElementById("searchCliente");
     if (searchInput) requestAnimationFrame(() => searchInput.focus());
@@ -1157,7 +1328,10 @@ async function salvaEvento() {
 
     const servizioId = document.getElementById("servizioSelect").value;
     const pacchettoId = document.getElementById("pacchettoSelect")?.value || null;
+    const repeatSettimanale = !!document.getElementById("eventoRipetiSettimanale")?.checked;
+    const occorrenzeRaw = document.getElementById("eventoNumeroOccorrenze")?.value;
     const dataOrarioCustom = leggiDataOraDalModalNuovoEvento();
+    const customSlotsResult = leggiSlotPersonalizzatiDalModal();
     const salvaBtn = document.getElementById("btnSalvaEvento");
 
     if (salvaBtn?.disabled) return;
@@ -1166,6 +1340,13 @@ async function salvaEvento() {
         mostraToast("Inserisci data e orario validi", "warning");
         return;
     }
+
+    if (customSlotsResult?.error) {
+        mostraToast(customSlotsResult.error, "warning");
+        return;
+    }
+
+    const customSlots = customSlotsResult?.slots || [];
 
     const { startLocal, endLocal } = dataOrarioCustom;
 
@@ -1182,10 +1363,39 @@ async function salvaEvento() {
         return;
     }
 
+    let occorrenze = 1;
+    if (repeatSettimanale) {
+        const parsedOccorrenze = Number.parseInt(occorrenzeRaw, 10);
+        if (!Number.isFinite(parsedOccorrenze) || parsedOccorrenze < 2 || parsedOccorrenze > 52) {
+            mostraToast("Numero appuntamenti non valido (2-52)", "warning");
+            return;
+        }
+        occorrenze = parsedOccorrenze;
+    }
+
+    if (repeatSettimanale && customSlots.length > 0) {
+        mostraToast("Usa o la serie settimanale o gli slot personalizzati, non entrambi.", "warning");
+        return;
+    }
+
+    let slotsPersonalizzatiPayload = null;
+    if (customSlots.length > 0) {
+        slotsPersonalizzatiPayload = [
+            {
+                start_datetime: selectedStart,
+                end_datetime: selectedEnd
+            },
+            ...customSlots.map(slot => ({
+                start_datetime: formatDateTimeForApi(slot.startLocal),
+                end_datetime: formatDateTimeForApi(slot.endLocal)
+            }))
+        ];
+    }
+
     setButtonLoading(salvaBtn, true, { label: "Salvataggio..." });
 
     try {
-        await fetchJsonOrThrow('/api/appuntamenti', {
+        const payload = await fetchJsonOrThrow('/api/appuntamenti', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1194,6 +1404,9 @@ async function salvaEvento() {
                 pacchetto_cliente_id: pacchettoId,
                 start_datetime: selectedStart,
                 end_datetime: selectedEnd,
+                ripeti_settimanale: slotsPersonalizzatiPayload ? false : repeatSettimanale,
+                occorrenze: slotsPersonalizzatiPayload ? 1 : occorrenze,
+                slots_personalizzati: slotsPersonalizzatiPayload,
                 note: "",
                 durata_minuti: Math.round((new Date(selectedEnd) - new Date(selectedStart)) / 60000)
             })
@@ -1203,7 +1416,13 @@ async function salvaEvento() {
         calendar.refetchEvents();
         clientiSelezionati = [];
         aggiornaClientiSelezionati();
-        mostraToast("Appuntamento creato con successo.", "success");
+
+        const createdCount = Number.parseInt(payload?.created_count, 10);
+        if (Number.isFinite(createdCount) && createdCount > 1) {
+            mostraToast(`Creati ${createdCount} appuntamenti.`, "success");
+        } else {
+            mostraToast("Appuntamento creato con successo.", "success");
+        }
     } catch (error) {
         console.error("Errore:", error);
         mostraToast(error.message || "Errore nel creare appuntamento", "error");
