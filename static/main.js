@@ -518,10 +518,10 @@ buttonText: {
         dayHeaderFormat: mobileMode
             ? { weekday: 'short', day: '2-digit', month: '2-digit' }
             : { weekday: 'short', day: 'numeric', month: 'numeric' },
-        height: 'auto',
-        contentHeight: 'auto',
-        expandRows: true,
+        height: '100%',
+        expandRows: false,
         nowIndicator: true,
+        stickyHeaderDates: true,
         lazyFetching: true,
         progressiveEventRendering: true,
         rerenderDelay: 50,

@@ -354,6 +354,40 @@ html, button, input, select, textarea {
     box-shadow: 0 30px 70px rgba(0,0,0,0.08);
     border: 1px solid rgba(255,255,255,0.6);
     transition: all 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#calendar {
+    height: min(76vh, 920px);
+    min-height: 520px;
+}
+
+#calendar .fc {
+    height: 100%;
+}
+
+#calendar .fc .fc-toolbar.fc-header-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 8;
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    margin: 0;
+    padding: 8px 0 10px 0;
+}
+
+#calendar .fc .fc-scroller-harness,
+#calendar .fc .fc-scroller-harness-liquid {
+    min-height: 0;
+}
+
+#calendar .fc .fc-scroller {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    overscroll-behavior: contain;
 }
 
 .fc {
@@ -2730,6 +2764,11 @@ textarea:focus-visible {
 
     body.mobile-calendar-mode .fc .fc-scrollgrid {
         border-radius: 12px;
+    }
+
+    #calendar {
+        height: min(68vh, 760px);
+        min-height: 420px;
     }
 }
 
