@@ -6,6 +6,7 @@ from flask import Flask, render_template, request, jsonify, redirect, send_file,
 from supabase import create_client
 from dotenv import load_dotenv
 from datetime import datetime
+from calendar import monthrange
 from functools import wraps
 from werkzeug.exceptions import HTTPException
 
@@ -1086,6 +1087,135 @@ def get_servizi():
         .execute()
     return jsonify(response.data)
 
+
+@app.route("/api/pagamenti/mese", methods=["GET"])
+@login_required
+def get_pagamenti_mese():
+    mese = (request.args.get("mese") or "").strip()
+
+    if not mese:
+        return jsonify({"error": "Parametro mese obbligatorio (YYYY-MM)"}), 400
+
+    try:
+        mese_dt = datetime.strptime(mese, "%Y-%m")
+    except ValueError:
+        return jsonify({"error": "Formato mese non valido. Usa YYYY-MM"}), 400
+
+    ultimo_giorno = monthrange(mese_dt.year, mese_dt.month)[1]
+    start = f"{mese_dt.year:04d}-{mese_dt.month:02d}-01"
+    end = f"{mese_dt.year:04d}-{mese_dt.month:02d}-{ultimo_giorno:02d}"
+
+    response = supabase.table("pagamenti") \
+        .select("id,cliente,importo,data_pagamento,note") \
+        .gte("data_pagamento", start) \
+        .lte("data_pagamento", end) \
+        .order("data_pagamento") \
+        .execute()
+
+    return jsonify(response.data or [])
+
+
+def _costruisci_payload_pagamento(data):
+    data = data or {}
+
+    cliente_id = str(data.get("cliente_id") or "").strip()
+    cliente = (data.get("cliente") or "").strip()
+    data_pagamento = (data.get("data_pagamento") or "").strip()
+    note = (data.get("note") or "").strip()
+    importo_raw = data.get("importo")
+
+    if cliente_id:
+        cliente_row = supabase.table("clienti") \
+            .select("id,nome,cognome") \
+            .eq("id", cliente_id) \
+            .single() \
+            .execute().data
+
+        if not cliente_row:
+            return None, ("Cliente non trovato", 404)
+
+        cliente = f"{cliente_row.get('nome', '')} {cliente_row.get('cognome', '')}".strip()
+
+    if not cliente:
+        return None, ("Cliente obbligatorio", 400)
+
+    if not data_pagamento:
+        return None, ("Data pagamento obbligatoria", 400)
+
+    try:
+        datetime.strptime(data_pagamento, "%Y-%m-%d")
+    except ValueError:
+        return None, ("Formato data non valido. Usa YYYY-MM-DD", 400)
+
+    if importo_raw is None:
+        return None, ("Importo obbligatorio", 400)
+
+    try:
+        importo_norm = str(importo_raw).replace(",", ".").strip()
+        importo = float(importo_norm)
+    except (ValueError, TypeError):
+        return None, ("Importo non valido", 400)
+
+    if importo <= 0:
+        return None, ("Importo deve essere maggiore di zero", 400)
+
+    return {
+        "cliente": cliente,
+        "importo": importo,
+        "data_pagamento": data_pagamento,
+        "note": note or None
+    }, None
+
+
+@app.route("/api/pagamenti", methods=["POST"])
+@login_required
+def crea_pagamento():
+    payload, errore = _costruisci_payload_pagamento(request.json or {})
+    if errore:
+        return jsonify({"error": errore[0]}), errore[1]
+
+    response = supabase.table("pagamenti").insert(payload).execute()
+    pagamento = response.data[0] if response.data else payload
+    return jsonify({
+        "success": True,
+        "pagamento": pagamento
+    })
+
+
+@app.route("/api/pagamenti/<pagamento_id>", methods=["PUT"])
+@login_required
+def aggiorna_pagamento(pagamento_id):
+    payload, errore = _costruisci_payload_pagamento(request.json or {})
+    if errore:
+        return jsonify({"error": errore[0]}), errore[1]
+
+    response = supabase.table("pagamenti") \
+        .update(payload) \
+        .eq("id", pagamento_id) \
+        .execute()
+
+    if not response.data:
+        return jsonify({"error": "Pagamento non trovato"}), 404
+
+    return jsonify({
+        "success": True,
+        "pagamento": response.data[0]
+    })
+
+
+@app.route("/api/pagamenti/<pagamento_id>", methods=["DELETE"])
+@login_required
+def elimina_pagamento(pagamento_id):
+    response = supabase.table("pagamenti") \
+        .delete() \
+        .eq("id", pagamento_id) \
+        .execute()
+
+    if not response.data:
+        return jsonify({"error": "Pagamento non trovato"}), 404
+
+    return jsonify({"success": True})
+
 # ===============================
 # ARCHIVIO CLIENTI
 # ===============================
@@ -1099,6 +1229,12 @@ def lista_clienti():
         .execute()
 
     return render_template("clienti.html", clienti=response.data)
+
+
+@app.route("/pagamenti")
+@login_required
+def pagina_pagamenti():
+    return render_template("pagamenti.html")
 
 # ===============================
 # DETTAGLIO CLIENTE
@@ -1231,6 +1367,56 @@ def dettaglio_cliente(cliente_id):
     # Sedute rimanenti (somma pacchetti attivi)
     sedute_rimanenti = sum(pac.get("sedute_rimanenti", 0) for pac in pacchetti_cliente)
 
+    nome_cliente_pagamenti = f"{cliente.get('nome', '')} {cliente.get('cognome', '')}".strip()
+
+    pagamenti_raw = supabase.table("pagamenti") \
+        .select("cliente,importo,data_pagamento,note") \
+        .eq("cliente", nome_cliente_pagamenti) \
+        .order("data_pagamento", desc=True) \
+        .execute().data or []
+
+    def parse_importo_pagamento(value):
+        if isinstance(value, (int, float)):
+            return float(value)
+
+        raw = str(value or "").strip().replace("€", "").replace(" ", "")
+        if raw.count(",") == 1 and raw.count(".") >= 1:
+            raw = raw.replace(".", "").replace(",", ".")
+        elif "," in raw:
+            raw = raw.replace(",", ".")
+
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return 0.0
+
+    pagamenti_cliente = []
+    totale_pagamenti = 0.0
+
+    for pagamento in pagamenti_raw:
+        importo_value = parse_importo_pagamento(pagamento.get("importo"))
+        totale_pagamenti += importo_value
+
+        data_value = pagamento.get("data_pagamento")
+        try:
+            data_dt = datetime.fromisoformat(str(data_value).replace("Z", "+00:00"))
+            data_formattata = data_dt.strftime("%d/%m/%Y")
+        except (TypeError, ValueError):
+            data_formattata = data_value or "-"
+
+        importo_label = f"€ {importo_value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        pagamenti_cliente.append({
+            "cliente": pagamento.get("cliente") or "-",
+            "data_formattata": data_formattata,
+            "importo": importo_value,
+            "importo_label": importo_label,
+            "note": pagamento.get("note") or "-"
+        })
+
+    totale_pagamenti_label = f"€ {totale_pagamenti:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    ultimo_pagamento_data = pagamenti_cliente[0]["data_formattata"] if pagamenti_cliente else None
+
     return render_template(
         "cliente_dettaglio.html",
         cliente=cliente,
@@ -1241,7 +1427,11 @@ def dettaglio_cliente(cliente_id):
         stats_totali=totale_sedute,
         stats_rimanenti=sedute_rimanenti,
         ultima_visita=ultima_visita_str,
-        prossima_visita=prossima_visita_str
+        prossima_visita=prossima_visita_str,
+        pagamenti_cliente=pagamenti_cliente,
+        pagamenti_totale_label=totale_pagamenti_label,
+        pagamenti_count=len(pagamenti_cliente),
+        pagamenti_ultimo=ultimo_pagamento_data
     )
 
 

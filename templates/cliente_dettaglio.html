@@ -51,6 +51,52 @@
         </div>
     </div>
 
+    <div class="detail-card">
+        <h3>Pagamenti</h3>
+
+        <div class="detail-stats-grid">
+            <div class="detail-stat-card">
+                <p class="detail-stat-label">Totale Incassato</p>
+                <p class="detail-stat-value">{{ pagamenti_totale_label or "€ 0,00" }}</p>
+            </div>
+            <div class="detail-stat-card">
+                <p class="detail-stat-label">Numero Pagamenti</p>
+                <p class="detail-stat-value">{{ pagamenti_count or 0 }}</p>
+            </div>
+            <div class="detail-stat-card">
+                <p class="detail-stat-label">Ultimo Pagamento</p>
+                <p class="detail-stat-secondary">{{ pagamenti_ultimo or "-" }}</p>
+            </div>
+        </div>
+
+        <div style="margin-top:16px;">
+            {% if pagamenti_cliente and pagamenti_cliente|length > 0 %}
+                <div style="overflow-x:auto;">
+                    <table style="width:100%; border-collapse:collapse; min-width:560px;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left; padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.12); font-size:12px; text-transform:uppercase; color:#6b7280;">Data</th>
+                                <th style="text-align:left; padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.12); font-size:12px; text-transform:uppercase; color:#6b7280;">Pagamento</th>
+                                <th style="text-align:left; padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.12); font-size:12px; text-transform:uppercase; color:#6b7280;">Note</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pagamento in pagamenti_cliente %}
+                            <tr>
+                                <td style="padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.08);">{{ pagamento.data_formattata }}</td>
+                                <td style="padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.08); font-weight:600;">{{ pagamento.importo_label }}</td>
+                                <td style="padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.08);">{{ pagamento.note }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="detail-empty-state">Nessun pagamento registrato per questo cliente.</p>
+            {% endif %}
+        </div>
+    </div>
+
     <!-- CARD INFORMAZIONI -->
     <div class="detail-card">
 

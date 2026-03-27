@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resoconto Pagamenti</title>
+    <link rel="stylesheet" href="{{ static_file('style.css') }}">
+    <style>
+        .pagamenti-toolbar {
+            display: grid;
+            grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+            gap: 14px;
+            align-items: end;
+        }
+
+        .pagamenti-totale {
+            font-size: 20px;
+            font-weight: 700;
+            color: #111827;
+        }
+
+        .pagamenti-table-wrap {
+            overflow-x: auto;
+        }
+
+        .pagamenti-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 680px;
+        }
+
+        .pagamenti-table th,
+        .pagamenti-table td {
+            text-align: left;
+            padding: 12px 10px;
+            border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+            font-size: 14px;
+        }
+
+        .pagamenti-table th {
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: #6b7280;
+        }
+
+        .pagamenti-empty {
+            margin-top: 14px;
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .pagamenti-form-grid {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr 0.8fr 1.6fr auto;
+            gap: 10px;
+            align-items: end;
+        }
+
+        .pagamenti-form-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .pagamenti-form-meta {
+            margin-bottom: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #2563eb;
+        }
+
+        .pagamenti-actions-cell {
+            white-space: nowrap;
+            width: 1%;
+        }
+
+        .pagamenti-action-btn {
+            padding: 6px 10px;
+            font-size: 12px;
+            border-radius: 10px;
+        }
+
+        .pagamenti-action-danger {
+            border-color: rgba(185, 28, 28, 0.3);
+            color: #b91c1c;
+        }
+
+        .pagamenti-action-danger:hover {
+            border-color: rgba(185, 28, 28, 0.45);
+            background: rgba(185, 28, 28, 0.08);
+            color: #991b1b;
+        }
+
+        .pagamenti-form-grid .input-apple {
+            margin-top: 0;
+        }
+
+        .pagamenti-esito {
+            margin-top: 10px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .pagamenti-esito-success {
+            color: #166534;
+        }
+
+        .pagamenti-esito-error {
+            color: #b91c1c;
+        }
+
+        @media (max-width: 760px) {
+            .pagamenti-toolbar {
+                grid-template-columns: 1fr;
+            }
+
+            .pagamenti-table {
+                min-width: 560px;
+            }
+
+            .pagamenti-form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <header class="app-header">
+        <h1>Resoconto Pagamenti</h1>
+        <a href="/" class="btn-primary">← Torna al Calendario</a>
+    </header>
+
+    <div class="detail-card">
+        <div class="pagamenti-toolbar">
+            <div>
+                <label for="mese">Mese</label>
+                <input type="month" id="mese" class="input-apple">
+            </div>
+            <div id="totale" class="pagamenti-totale">Totale mese: € 0,00</div>
+        </div>
+    </div>
+
+    <div class="detail-card">
+        <h3>Nuovo Pagamento</h3>
+        <div id="pagamentoFormMeta" class="pagamenti-form-meta" style="display:none;"></div>
+        <form id="pagamentoForm" class="pagamenti-form-grid">
+            <input type="hidden" id="pagamentoIdEdit">
+            <div>
+                <label for="pagamentoCliente">Cliente</label>
+                <input type="text"
+                       id="pagamentoCliente"
+                       class="input-apple"
+                       list="pagamentoClientiList"
+                       placeholder="Scrivi nome o cognome..."
+                       autocomplete="off"
+                       required>
+                <datalist id="pagamentoClientiList"></datalist>
+                <input type="hidden" id="pagamentoClienteId">
+            </div>
+            <div>
+                <label for="pagamentoImporto">Importo (€)</label>
+                <input type="number" id="pagamentoImporto" class="input-apple" step="0.01" min="0.01" required>
+            </div>
+            <div>
+                <label for="pagamentoData">Data</label>
+                <input type="date" id="pagamentoData" class="input-apple" required>
+            </div>
+            <div>
+                <label for="pagamentoNote">Note</label>
+                <input type="text" id="pagamentoNote" class="input-apple">
+            </div>
+            <div class="pagamenti-form-actions">
+                <button type="submit" id="btnSalvaPagamento" class="btn-apple-primary">Salva</button>
+                <button type="button" id="btnAnnullaModificaPagamento" class="btn-apple-ghost" style="display:none;">Annulla</button>
+            </div>
+        </form>
+        <div id="pagamentoEsito" class="pagamenti-esito" style="display:none;"></div>
+    </div>
+
+    <div class="detail-card">
+        <div class="pagamenti-table-wrap">
+            <table class="pagamenti-table">
+                <thead>
+                <tr>
+                    <th>Cliente</th>
+                    <th>Data</th>
+                    <th>Pagamento</th>
+                    <th>Note</th>
+                    <th>Azioni</th>
+                </tr>
+                </thead>
+                <tbody id="pagamentiBody"></tbody>
+            </table>
+        </div>
+        <div id="statoVuoto" class="pagamenti-empty" style="display:none;">Nessun pagamento trovato</div>
+    </div>
+</div>
+<script src="{{ static_file('pagamenti.js') }}"></script>
+</body>
+</html>
