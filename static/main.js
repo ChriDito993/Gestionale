@@ -472,10 +472,26 @@ function inizializzaFiltriCalendario() {
     const filtroDataDa = document.getElementById("filtroDataDa");
     const filtroDataA = document.getElementById("filtroDataA");
     const resetBtn = document.getElementById("resetFiltriCalendario");
+    const toggleBtn = document.getElementById("toggleFiltriCalendario");
+    const filtersPanel = document.getElementById("calendarFiltersPanel");
+    const filtersCard = document.querySelector(".calendar-filters-card");
 
-    if (!filtroStato || !filtroServizio || !filtroCliente || !filtroDataDa || !filtroDataA || !resetBtn) {
+    if (!filtroStato || !filtroServizio || !filtroCliente || !filtroDataDa || !filtroDataA || !resetBtn || !toggleBtn || !filtersPanel || !filtersCard) {
         return;
     }
+
+    toggleBtn.addEventListener("click", () => {
+        const isOpening = filtersPanel.hidden;
+        filtersPanel.hidden = !isOpening;
+        filtersCard.classList.toggle("is-open", isOpening);
+        toggleBtn.setAttribute("aria-expanded", String(isOpening));
+        toggleBtn.setAttribute("aria-label", isOpening ? "Chiudi filtri calendario" : "Apri filtri calendario");
+        toggleBtn.title = isOpening ? "Chiudi filtri" : "Cerca e filtra";
+
+        if (isOpening) {
+            filtroCliente.focus();
+        }
+    });
 
     filtroStato.addEventListener("change", () => aggiornaFiltriCalendarioDaUI(true));
     filtroServizio.addEventListener("change", () => aggiornaFiltriCalendarioDaUI(true));
@@ -501,13 +517,13 @@ document.addEventListener('DOMContentLoaded', function () {
     document.body.classList.toggle("mobile-calendar-mode", mobileMode);
 
     calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: mobileMode ? 'timeGridDay' : 'timeGridWeek',
+        initialView: 'timeGridWeek',
 firstDay: 1,   // Settimana che parte da Lunedì
 
 headerToolbar: {
-    left: mobileMode ? 'prev,next today' : 'prev,next today',
+    left: 'prev,next today',
     center: 'title',
-    right: mobileMode ? '' : 'timeGridWeek,timeGridDay'
+    right: 'timeGridWeek,timeGridDay'
 },
 
 buttonText: {
