@@ -219,6 +219,15 @@
         </div>
 
         <div class="section">
+            <label for="eventoNote">Note appuntamento <span class="field-optional">(opzionali)</span></label>
+            <textarea id="eventoNote"
+                      class="input-apple event-notes-input"
+                      rows="3"
+                      maxlength="2000"
+                      placeholder="Inserisci eventuali note per questo appuntamento..."></textarea>
+        </div>
+
+        <div class="section">
             <label>Serie Settimanale (opzionale)</label>
             <div class="event-recurrence-grid">
                 <label class="event-recurrence-toggle">
@@ -308,6 +317,12 @@
         <label>Ora Fine</label>
         <input type="time" id="oraFineModifica" class="input-apple">
 
+        <label for="noteModifica">Note appuntamento</label>
+        <textarea id="noteModifica"
+                  class="input-apple event-notes-input"
+                  rows="3"
+                  maxlength="2000"
+                  placeholder="Inserisci eventuali note per questo appuntamento..."></textarea>
 
         <div class="modal-footer modal-footer-vertical">
             <button type="button"

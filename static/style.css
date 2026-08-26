@@ -726,6 +726,17 @@ html, button, input, select, textarea {
     display: block;
 }
 
+.field-optional {
+    color: #9ca3af;
+    font-weight: 500;
+}
+
+.event-notes-input {
+    min-height: 88px;
+    resize: vertical;
+    line-height: 1.45;
+}
+
 .event-schedule-grid {
     display: grid;
     grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr);

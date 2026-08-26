@@ -1330,6 +1330,9 @@ function apriModal() {
     resetRicorrenzaEvento();
     resetSlotPersonalizzati();
 
+    const noteInput = document.getElementById("eventoNote");
+    if (noteInput) noteInput.value = "";
+
     const searchInput = document.getElementById("searchCliente");
     if (searchInput) requestAnimationFrame(() => searchInput.focus());
 }
@@ -1349,6 +1352,7 @@ async function salvaEvento() {
     const dataOrarioCustom = leggiDataOraDalModalNuovoEvento();
     const customSlotsResult = leggiSlotPersonalizzatiDalModal();
     const salvaBtn = document.getElementById("btnSalvaEvento");
+    const note = document.getElementById("eventoNote")?.value.trim() || "";
 
     if (salvaBtn?.disabled) return;
 
@@ -1423,7 +1427,7 @@ async function salvaEvento() {
                 ripeti_settimanale: slotsPersonalizzatiPayload ? false : repeatSettimanale,
                 occorrenze: slotsPersonalizzatiPayload ? 1 : occorrenze,
                 slots_personalizzati: slotsPersonalizzatiPayload,
-                note: "",
+                note,
                 durata_minuti: Math.round((new Date(selectedEnd) - new Date(selectedStart)) / 60000)
             })
         }, "Errore nel salvataggio appuntamento");
@@ -1573,6 +1577,7 @@ function apriModificaModal() {
     document.getElementById("dataModifica").value = data;
     document.getElementById("oraInizioModifica").value = oraInizio;
     document.getElementById("oraFineModifica").value = oraFine;
+    document.getElementById("noteModifica").value = extended.note || "";
 
 
     const modal = document.getElementById("modificaModal");
@@ -1698,6 +1703,7 @@ async function salvaModifiche() {
     const data = document.getElementById("dataModifica").value;
     const oraInizio = document.getElementById("oraInizioModifica").value;
     const oraFine = document.getElementById("oraFineModifica").value;
+    const note = document.getElementById("noteModifica").value.trim();
     const salvaBtn = document.getElementById("btnSalvaModifiche");
 
     if (salvaBtn?.disabled) return;
@@ -1727,7 +1733,8 @@ async function salvaModifiche() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 start_datetime: start_datetime,
-                end_datetime: end_datetime
+                end_datetime: end_datetime,
+                note
             })
         }, "Errore nel salvataggio modifiche");
 
