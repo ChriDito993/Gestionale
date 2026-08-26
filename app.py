@@ -635,6 +635,7 @@ def get_appuntamenti():
                 "servizio": nome_servizio,
                 "stato": appo.get("stato"),
                 "numero_seduta": appo.get("numero_seduta"),
+                "note": appo.get("note") or "",
                 "reminder_whatsapp": appo.get("reminder_whatsapp", False)
             }
         })
@@ -656,6 +657,8 @@ def crea_appuntamento():
     servizio_id = data.get("servizio_id")
     start_datetime = normalize_datetime_local(data.get("start_datetime"))
     end_datetime = normalize_datetime_local(data.get("end_datetime"))
+    note_raw = data.get("note")
+    note = note_raw.strip() if isinstance(note_raw, str) else ""
 
     clienti_ids = data.get("clienti_ids") or []
     cliente_id_singolo = data.get("cliente_id")
@@ -675,6 +678,9 @@ def crea_appuntamento():
 
     if not servizio_id:
         return jsonify({"error": "Servizio obbligatorio"}), 400
+
+    if len(note) > 2000:
+        return jsonify({"error": "Le note possono contenere al massimo 2000 caratteri"}), 400
 
     slots_personalizzati_raw = data.get("slots_personalizzati") or []
     slot_plan = []
@@ -821,7 +827,8 @@ def crea_appuntamento():
             "end_datetime": occ_end_dt.isoformat(),
             "pacchetto_cliente_id": pacchetto_id,
             "numero_seduta": numero_seduta_corrente,
-            "scalato": bool(pacchetto_id)
+            "scalato": bool(pacchetto_id),
+            "note": note or None
         }).execute()
 
         if not nuovo_appuntamento.data:
@@ -876,6 +883,14 @@ def aggiorna_appuntamento(id):
         payload["start_datetime"] = normalize_datetime_local(payload.get("start_datetime"))
     if "end_datetime" in payload:
         payload["end_datetime"] = normalize_datetime_local(payload.get("end_datetime"))
+    if "note" in payload:
+        note_raw = payload.get("note")
+        if not isinstance(note_raw, str):
+            return jsonify({"error": "Le note non sono valide"}), 400
+        note = note_raw.strip()
+        if len(note) > 2000:
+            return jsonify({"error": "Le note possono contenere al massimo 2000 caratteri"}), 400
+        payload["note"] = note or None
 
     response = supabase.table("appuntamenti") \
         .update(payload) \
@@ -1344,6 +1359,7 @@ def dettaglio_cliente(cliente_id):
             "servizio": appo["servizi"]["nome"],
             "stato": appo.get("stato"),
             "numero_seduta": appo.get("numero_seduta"),
+            "note": (appo.get("note") or "").strip(),
             "condivisi": condivisi
         })
 
