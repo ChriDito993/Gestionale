@@ -245,6 +245,13 @@
                                     </span>
                                 {% endif %}
                             </div>
+
+                            {% if app.note %}
+                                <div class="cliente-app-note">
+                                    <span>Note</span>
+                                    {{ app.note }}
+                                </div>
+                            {% endif %}
                         </div>
                     </a>
 
