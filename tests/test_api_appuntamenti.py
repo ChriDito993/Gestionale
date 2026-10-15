@@ -222,6 +222,59 @@ def test_post_appuntamenti_creates_record_and_links_clients(authed_client):
     assert len(fake_supabase.appuntamenti_clienti) == 2
 
 
+def test_post_appuntamenti_sends_confirmation_without_blocking_creation(authed_client, monkeypatch):
+    client, _fake_supabase = authed_client
+    chiamate = []
+
+    def fake_invia_conferme(appuntamenti, clienti_ids, servizio_id):
+        chiamate.append((appuntamenti, clienti_ids, servizio_id))
+
+    monkeypatch.setattr(app_module, "invia_conferme_appuntamento", fake_invia_conferme)
+
+    response = client.post(
+        "/api/appuntamenti",
+        json={
+            "servizio_id": 10,
+            "start_datetime": "2026-03-11T10:00:00",
+            "end_datetime": "2026-03-11T11:00:00",
+            "clienti_ids": [101],
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(chiamate) == 1
+    appuntamenti, clienti_ids, servizio_id = chiamate[0]
+    assert appuntamenti[0]["id"] == "1"
+    assert clienti_ids == [101]
+    assert servizio_id == 10
+
+
+def test_post_appuntamenti_can_occupy_slot_without_cliente(authed_client, monkeypatch):
+    client, fake_supabase = authed_client
+    chiamate_email = []
+    monkeypatch.setattr(
+        app_module,
+        "invia_conferme_appuntamento",
+        lambda *args: chiamate_email.append(args),
+    )
+
+    response = client.post(
+        "/api/appuntamenti",
+        json={
+            "servizio_id": 10,
+            "start_datetime": "2026-03-11T10:00:00",
+            "end_datetime": "2026-03-11T11:00:00",
+            "occupato": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert fake_supabase.appuntamenti["1"]["cliente_id"] is None
+    assert fake_supabase.appuntamenti["1"]["stato"] == "occupato"
+    assert fake_supabase.appuntamenti_clienti == []
+    assert chiamate_email == []
+
+
 def test_post_appuntamenti_supports_legacy_cliente_id_field(authed_client):
     client, fake_supabase = authed_client
 
@@ -471,6 +524,29 @@ def test_smoke_calendar_get_returns_events(authed_client):
     assert len(body) == 1
     assert body[0]["id"] == "1"
     assert body[0]["title"] == "Massoterapia (S2)"
+
+
+def test_calendar_marks_occupied_slot_in_red(authed_client):
+    client, fake_supabase = authed_client
+    fake_supabase.appuntamenti["1"] = {
+        "id": "1",
+        "start_datetime": "2026-03-11T10:00:00",
+        "end_datetime": "2026-03-11T11:00:00",
+        "stato": "occupato",
+        "servizi": {
+            "nome": "Massoterapia",
+            "colore_calendario": "#2a9d8f",
+        },
+        "appuntamenti_clienti": [],
+    }
+
+    response = client.get("/api/appuntamenti")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body[0]["title"] == "Occupato"
+    assert body[0]["backgroundColor"] == "#dc2626"
+    assert body[0]["extendedProps"]["occupato"] is True
 
 
 def test_health_endpoint_is_public(unauth_client):

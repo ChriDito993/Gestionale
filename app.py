@@ -206,6 +206,97 @@ def normalize_datetime_local(value):
         return normalized
 
 
+def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
+    """Invia le conferme senza rendere fallibile la creazione dell'appuntamento."""
+    resend_api_key = (os.getenv("RESEND_API_KEY") or "").strip()
+    if not resend_api_key or not appuntamenti or not clienti_ids:
+        return
+
+    try:
+        servizio_response = supabase.table("servizi") \
+            .select("nome") \
+            .eq("id", servizio_id) \
+            .single() \
+            .execute()
+        servizio_nome = (servizio_response.data or {}).get("nome") or "trattamento"
+    except Exception:
+        app.logger.exception(
+            "Impossibile recuperare il servizio per le email di conferma servizio_id=%s",
+            servizio_id
+        )
+        servizio_nome = "trattamento"
+
+    clienti_con_email = []
+    for cliente_id in clienti_ids:
+        try:
+            cliente_response = supabase.table("clienti") \
+                .select("nome,email") \
+                .eq("id", cliente_id) \
+                .single() \
+                .execute()
+            cliente = cliente_response.data
+            if cliente and cliente.get("email"):
+                clienti_con_email.append(cliente)
+        except Exception:
+            app.logger.exception(
+                "Impossibile recuperare il cliente per l'email di conferma cliente_id=%s",
+                cliente_id
+            )
+
+    for appuntamento in appuntamenti:
+        try:
+            dt = datetime.fromisoformat(appuntamento["start_datetime"].replace("Z", "+00:00"))
+            data_formattata = dt.strftime("%d/%m/%Y")
+            ora_formattata = dt.strftime("%H:%M")
+            numero_seduta = appuntamento.get("numero_seduta")
+            info_seduta = (
+                f"\nQuesta sarà la seduta n° {numero_seduta} del tuo pacchetto.\n"
+                if numero_seduta else ""
+            )
+
+            for cliente in clienti_con_email:
+                corpo = f"""Ciao {cliente.get('nome') or ''},
+
+Il tuo appuntamento è stato confermato:
+
+Data: {data_formattata}
+Orario: {ora_formattata}
+Servizio: {servizio_nome}
+{info_seduta}
+Ti aspetto!
+
+MASSOTERAPIA & PT
+Christian Di Tommaso
+"""
+                response = requests.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {resend_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "from": os.getenv("RESEND_FROM_EMAIL", "Gestionale <onboarding@resend.dev>"),
+                        "to": [cliente["email"]],
+                        "subject": f"Appuntamento confermato – {servizio_nome}",
+                        "text": corpo
+                    },
+                    timeout=10
+                )
+                if response.status_code not in [200, 201]:
+                    app.logger.warning(
+                        "Invio conferma non riuscito appuntamento_id=%s cliente_email=%s status=%s",
+                        appuntamento.get("id"),
+                        cliente["email"],
+                        response.status_code
+                    )
+        except Exception:
+            # L'appuntamento e' gia' stato creato: un errore email non deve annullarlo.
+            app.logger.exception(
+                "Errore invio email di conferma appuntamento_id=%s",
+                appuntamento.get("id")
+            )
+
+
 @app.before_request
 def attach_request_id():
     incoming_request_id = (request.headers.get("X-Request-ID") or "").strip()
@@ -613,14 +704,16 @@ def get_appuntamenti():
         if cliente_query and cliente_query not in nomi_clienti.lower():
             continue
 
-        nome_servizio = appo["servizi"]["nome"]
-        colore = appo["servizi"]["colore_calendario"]
+        is_occupato = appo.get("stato") == "occupato"
+        servizio = appo.get("servizi") or {}
+        nome_servizio = servizio.get("nome") or ""
+        colore = "#dc2626" if is_occupato else servizio.get("colore_calendario")
 
-        # Il titolo deve contenere solo il servizio (i clienti vengono mostrati nel popup)
-        titolo = nome_servizio
+        # Il titolo deve contenere solo il servizio (i clienti vengono mostrati nel popup).
+        titolo = "Occupato" if is_occupato else nome_servizio
 
         # 🔹 Aggiungi numero seduta se presente
-        if appo.get("numero_seduta"):
+        if not is_occupato and appo.get("numero_seduta"):
             titolo += f" (S{appo['numero_seduta']})"
 
         eventi.append({
@@ -634,6 +727,7 @@ def get_appuntamenti():
                 "clienti_ids": clienti_ids,
                 "servizio": nome_servizio,
                 "stato": appo.get("stato"),
+                "occupato": is_occupato,
                 "numero_seduta": appo.get("numero_seduta"),
                 "note": appo.get("note") or "",
                 "reminder_whatsapp": appo.get("reminder_whatsapp", False)
@@ -659,6 +753,10 @@ def crea_appuntamento():
     end_datetime = normalize_datetime_local(data.get("end_datetime"))
     note_raw = data.get("note")
     note = note_raw.strip() if isinstance(note_raw, str) else ""
+    occupato_raw = data.get("occupato", False)
+    occupato = occupato_raw is True or (
+        isinstance(occupato_raw, str) and occupato_raw.strip().lower() in {"true", "1", "si", "sì"}
+    )
 
     clienti_ids = data.get("clienti_ids") or []
     cliente_id_singolo = data.get("cliente_id")
@@ -671,9 +769,11 @@ def crea_appuntamento():
         clienti_ids = [clienti_ids]
 
     clienti_ids = [cid for cid in clienti_ids if cid not in (None, "")]
+    if occupato:
+        clienti_ids = []
 
     # 🔒 Controllo sicurezza
-    if not clienti_ids:
+    if not clienti_ids and not occupato:
         return jsonify({"error": "Nessun cliente selezionato"}), 400
 
     if not servizio_id:
@@ -765,9 +865,12 @@ def crea_appuntamento():
     sedute_effettuate_corrente = None
     numero_totale_sedute = None
 
-    cliente_principale = clienti_ids[0]
+    cliente_principale = clienti_ids[0] if clienti_ids else None
 
-    if pacchetto_id:
+    if occupato:
+        # Uno slot occupato non e' associato a clienti o pacchetti.
+        pacchetto_id = None
+    elif pacchetto_id:
         # Recupero pacchetto selezionato
         pacchetto = supabase.table("pacchetti_cliente") \
             .select("id,cliente_id,sedute_effettuate,tipi_pacchetto(servizio_id,numero_sedute)") \
@@ -807,6 +910,7 @@ def crea_appuntamento():
                 numero_totale_sedute = pac["tipi_pacchetto"].get("numero_sedute") or 0
 
     appuntamenti_creati_ids = []
+    appuntamenti_creati = []
     primo_numero_seduta = None
 
     for occ_start_dt, occ_end_dt in slot_plan:
@@ -828,7 +932,8 @@ def crea_appuntamento():
             "pacchetto_cliente_id": pacchetto_id,
             "numero_seduta": numero_seduta_corrente,
             "scalato": bool(pacchetto_id),
-            "note": note or None
+            "note": note or None,
+            "stato": "occupato" if occupato else "prenotato"
         }).execute()
 
         if not nuovo_appuntamento.data:
@@ -836,6 +941,7 @@ def crea_appuntamento():
 
         appuntamento_id = nuovo_appuntamento.data[0]["id"]
         appuntamenti_creati_ids.append(appuntamento_id)
+        appuntamenti_creati.append(nuovo_appuntamento.data[0])
 
         # 🔹 Inserimento clienti nella tabella ponte
         for cliente_id in clienti_ids:
@@ -867,6 +973,8 @@ def crea_appuntamento():
             }).eq("id", pacchetto_id).execute()
 
     invalidate_calendar_cache()
+    if not occupato:
+        invia_conferme_appuntamento(appuntamenti_creati, clienti_ids, servizio_id)
     return jsonify({
         "success": True,
         "numero_seduta": primo_numero_seduta,

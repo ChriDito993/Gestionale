@@ -779,6 +779,40 @@ html, button, input, select, textarea {
     accent-color: #2a9d8f;
 }
 
+.event-occupato-section {
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    background: #fff7f7;
+    padding: 12px;
+}
+
+.event-occupato-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    color: #b91c1c;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.event-occupato-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: #dc2626;
+}
+
+.event-occupato-help {
+    margin: 7px 0 0;
+    color: #991b1b;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
 .event-recurrence-count {
     display: flex;
     flex-direction: column;

@@ -118,6 +118,7 @@
                     <option value="completato">Completato</option>
                     <option value="annullato">Annullato</option>
                     <option value="no_show">No Show</option>
+                    <option value="occupato">Occupato</option>
                 </select>
             </div>
 
@@ -172,7 +173,7 @@
         <span class="close" onclick="chiudiModal()">✖</span>
         <h3 class="modal-title-premium modal-title-bar-premium">Nuovo Appuntamento</h3>
 
-        <div class="section">
+        <div id="eventoClienteSection" class="section">
             <label>Cliente</label>
             <input type="text" id="searchCliente" class="input-apple" placeholder="Scrivi nome o cognome..." autocomplete="off">
             <div id="risultatiClienti" class="dropdown-risultati"></div>
@@ -216,6 +217,14 @@
                     <input type="time" id="eventoOraFine" class="input-apple" step="900" required>
                 </div>
             </div>
+        </div>
+
+        <div class="section event-occupato-section">
+            <label class="event-occupato-toggle">
+                <input type="checkbox" id="eventoOccupato">
+                <span>Occupa questo slot</span>
+            </label>
+            <p class="event-occupato-help">Crea un blocco senza cliente, visualizzato in rosso come “Occupato”.</p>
         </div>
 
         <div class="section">
@@ -263,7 +272,7 @@
             </div>
         </div>
 
-        <div class="section">
+        <div id="eventoPacchettoSection" class="section">
             <label>Pacchetto (opzionale)</label>
             <select id="pacchettoSelect" class="input-apple">
                 <option value="">Nessun pacchetto</option>

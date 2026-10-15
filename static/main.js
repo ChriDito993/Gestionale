@@ -178,6 +178,36 @@ function resetRicorrenzaEvento() {
     sincronizzaRicorrenzaEventoUI();
 }
 
+function sincronizzaStatoOccupatoUI() {
+    const occupatoCheckbox = document.getElementById("eventoOccupato");
+    const clienteSection = document.getElementById("eventoClienteSection");
+    const pacchettoSection = document.getElementById("eventoPacchettoSection");
+    const salvaBtn = document.getElementById("btnSalvaEvento");
+    if (!occupatoCheckbox) return;
+
+    const isOccupato = occupatoCheckbox.checked;
+    if (clienteSection) clienteSection.hidden = isOccupato;
+    if (pacchettoSection) pacchettoSection.hidden = isOccupato;
+    if (salvaBtn) salvaBtn.textContent = isOccupato ? "Occupa Slot" : "Salva Appuntamento";
+}
+
+function inizializzaStatoOccupato() {
+    const occupatoCheckbox = document.getElementById("eventoOccupato");
+    if (!occupatoCheckbox || occupatoCheckbox.dataset.bound === "1") return;
+
+    occupatoCheckbox.dataset.bound = "1";
+    occupatoCheckbox.addEventListener("change", sincronizzaStatoOccupatoUI);
+    sincronizzaStatoOccupatoUI();
+}
+
+function resetStatoOccupato() {
+    const occupatoCheckbox = document.getElementById("eventoOccupato");
+    if (!occupatoCheckbox) return;
+
+    occupatoCheckbox.checked = false;
+    sincronizzaStatoOccupatoUI();
+}
+
 function creaRigaSlotPersonalizzato(slot = null) {
     const row = document.createElement("div");
     row.className = "event-custom-slot-row";
@@ -643,6 +673,7 @@ buttonText: {
 
                 return { domNodes: [wrapper] };
             }
+            const occupato = !!arg.event.extendedProps?.occupato;
             const clienti = arg.event.extendedProps?.clienti || "";
             const servizio = arg.event.extendedProps?.servizio || "";
 
@@ -654,9 +685,9 @@ buttonText: {
             const nomeEl = document.createElement("div");
             nomeEl.className = "fc-event-title";
             // Formattazione nomi clienti (es: "👥 Monica + Angela")
-            let displayClienti = clienti;
+            let displayClienti = occupato ? "Occupato" : clienti;
 
-            if (clienti.includes("+")) {
+            if (!occupato && clienti.includes("+")) {
                 const parti = clienti.split("+").map(n => n.trim());
 
                 const firstNames = parti.map(nomeCompleto => {
@@ -677,7 +708,7 @@ buttonText: {
             servizioEl.style.opacity = "0.85";
 
             wrapper.appendChild(nomeEl);
-            if (servizio) {
+            if (servizio && !occupato) {
                 wrapper.appendChild(servizioEl);
             }
 
@@ -693,8 +724,16 @@ buttonText: {
                 return; // evita applicazione colori servizio
             }
 
+            const occupato = !!info.event.extendedProps?.occupato;
+            if (occupato) {
+                info.el.style.backgroundColor = "#dc2626";
+                info.el.style.borderColor = "#b91c1c";
+                info.el.style.color = "#ffffff";
+                return;
+            }
+
             const servizio = info.event.extendedProps?.servizio;
-             if (!servizio) return;
+            if (!servizio) return;
 
             const coloreServizio = getColoreServizio(servizio);
             info.el.style.backgroundColor = coloreServizio;
@@ -837,6 +876,7 @@ buttonText: {
     inizializzaAssegnaPacchettoRapido();
     inizializzaRicorrenzaEvento();
     inizializzaSlotPersonalizzati();
+    inizializzaStatoOccupato();
     aggiornaDashboardOggi();
 
     // ===============================
@@ -1329,6 +1369,7 @@ function apriModal() {
     sincronizzaCampiDataOraNuovoEvento();
     resetRicorrenzaEvento();
     resetSlotPersonalizzati();
+    resetStatoOccupato();
 
     const noteInput = document.getElementById("eventoNote");
     if (noteInput) noteInput.value = "";
@@ -1353,6 +1394,7 @@ async function salvaEvento() {
     const customSlotsResult = leggiSlotPersonalizzatiDalModal();
     const salvaBtn = document.getElementById("btnSalvaEvento");
     const note = document.getElementById("eventoNote")?.value.trim() || "";
+    const occupato = !!document.getElementById("eventoOccupato")?.checked;
 
     if (salvaBtn?.disabled) return;
 
@@ -1378,8 +1420,11 @@ async function salvaEvento() {
     selectedStart = formatDateTimeForApi(startLocal);
     selectedEnd = formatDateTimeForApi(endLocal);
 
-    if (clientiSelezionati.length === 0 || !servizioId) {
-        mostraToast("Seleziona almeno un cliente e un servizio", "warning");
+    if ((!occupato && clientiSelezionati.length === 0) || !servizioId) {
+        mostraToast(
+            occupato ? "Seleziona un servizio" : "Seleziona almeno un cliente e un servizio",
+            "warning"
+        );
         return;
     }
 
@@ -1419,9 +1464,10 @@ async function salvaEvento() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                clienti_ids: clientiSelezionati.map(c => c.id),
+                clienti_ids: occupato ? [] : clientiSelezionati.map(c => c.id),
                 servizio_id: servizioId,
-                pacchetto_cliente_id: pacchettoId,
+                pacchetto_cliente_id: occupato ? null : pacchettoId,
+                occupato,
                 start_datetime: selectedStart,
                 end_datetime: selectedEnd,
                 ripeti_settimanale: slotsPersonalizzatiPayload ? false : repeatSettimanale,
@@ -1861,8 +1907,12 @@ function inviaPromemoriaWhatsApp() {
             const start = window.eventoSelezionato.start;
             const data = start.toLocaleDateString('it-IT');
             const ora = start.toTimeString().slice(0,5);
+            const numeroSeduta = extended.numero_seduta;
+            const infoSeduta = numeroSeduta
+                ? ` Questa sarà la seduta n° ${numeroSeduta} del tuo pacchetto.`
+                : "";
 
-            const messaggio = `Ciao ${cliente.nome}, ti ricordo l'appuntamento di ${servizio} il ${data} alle ${ora}. A presto!`;
+            const messaggio = `Ciao ${cliente.nome}, ti ricordo l'appuntamento di ${servizio} il ${data} alle ${ora}.${infoSeduta} A presto!`;
 
             const url = `https://wa.me/${numero}?text=${encodeURIComponent(messaggio)}`;
 
