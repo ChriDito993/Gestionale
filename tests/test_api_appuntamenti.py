@@ -78,6 +78,10 @@ class FakeQuery:
             return self._exec_appuntamenti_clienti()
         if self.table_name == "pacchetti_cliente":
             return self._exec_pacchetti_cliente()
+        if self.table_name == "clienti":
+            return self._exec_readonly(self.fake_supabase.clienti)
+        if self.table_name == "servizi":
+            return self._exec_readonly(self.fake_supabase.servizi)
         return FakeResponse([])
 
     def _filter_rows(self, rows):
@@ -162,6 +166,17 @@ class FakeQuery:
 
         return FakeResponse([])
 
+    def _exec_readonly(self, rows_by_id):
+        if self.operation != "select":
+            return FakeResponse([])
+
+        rows = self._filter_rows(list(rows_by_id.values()))
+        if self._limit is not None:
+            rows = rows[: self._limit]
+        if self._single:
+            return FakeResponse(rows[0] if rows else None)
+        return FakeResponse(rows)
+
 
 class FakeSupabase:
     def __init__(self):
@@ -169,6 +184,8 @@ class FakeSupabase:
         self.appuntamenti = {}
         self.appuntamenti_clienti = []
         self.pacchetti_cliente = {}
+        self.clienti = {}
+        self.servizi = {}
         self.calls = []
 
     def table(self, table_name):
@@ -305,13 +322,107 @@ def test_invia_email_uses_gmail_smtp_when_configured(monkeypatch):
     monkeypatch.setenv("GMAIL_FROM_NAME", "Studio Test")
     monkeypatch.setattr(app_module.smtplib, "SMTP_SSL", FakeSmtp)
 
-    assert app_module.invia_email("cliente@example.com", "Conferma", "Testo email") is True
+    allegato = ("appuntamento-1.ics", b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", "text", "calendar")
+    assert app_module.invia_email("cliente@example.com", "Conferma", "Testo email", [allegato]) is True
     smtp = FakeSmtp.instances[0]
     assert smtp.host == "smtp.gmail.com"
     assert smtp.port == 465
     assert smtp.login_args == ("studio@example.com", "password-app")
     assert smtp.message["To"] == "cliente@example.com"
     assert smtp.message["Subject"] == "Conferma"
+    attachment = list(smtp.message.iter_attachments())[0]
+    assert attachment.get_filename() == "appuntamento-1.ics"
+    assert attachment.get_content().encode("utf-8") == allegato[1]
+
+
+def test_genera_file_calendario_is_valid_and_uses_rome_timezone():
+    contenuto = app_module.genera_file_calendario(
+        {
+            "id": "42",
+            "start_datetime": "2026-06-10T09:30:00",
+            "end_datetime": "2026-06-10T10:30:00",
+        },
+        "Massoterapia, relax",
+        "Seduta: 3 di 10",
+    ).decode("utf-8")
+    contenuto_senza_pieghe = contenuto.replace("\r\n ", "")
+
+    assert contenuto.startswith("BEGIN:VCALENDAR\r\nVERSION:2.0\r\n")
+    assert "UID:appuntamento-42@" in contenuto_senza_pieghe
+    assert "DTSTART;TZID=Europe/Rome:20260610T093000" in contenuto_senza_pieghe
+    assert "DTEND;TZID=Europe/Rome:20260610T103000" in contenuto_senza_pieghe
+    assert "LOCATION:Via Michele Lessona 9\\, Milano" in contenuto_senza_pieghe
+    assert "SUMMARY:Massoterapia & PT – Massoterapia\\, relax" in contenuto_senza_pieghe
+    assert "DESCRIPTION:Appuntamento presso Massoterapia & PT di Christian Di Tommaso.\\nSeduta: 3 di 10" in contenuto_senza_pieghe
+    assert contenuto.endswith("END:VEVENT\r\nEND:VCALENDAR\r\n")
+
+
+def test_confirmation_email_includes_package_session_and_ics(authed_client, monkeypatch):
+    _client, fake_supabase = authed_client
+    fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "email": "mario@example.com"}
+    fake_supabase.servizi["10"] = {"id": "10", "nome": "Massoterapia"}
+    fake_supabase.pacchetti_cliente["500"] = {
+        "id": "500",
+        "cliente_id": "101",
+        "tipi_pacchetto": {"numero_sedute": 10},
+    }
+    email_inviate = []
+    monkeypatch.setattr(
+        app_module,
+        "invia_email",
+        lambda destinatario, oggetto, corpo, allegati=None: email_inviate.append(
+            (destinatario, oggetto, corpo, allegati)
+        ) or True,
+    )
+
+    app_module.invia_conferme_appuntamento(
+        [{
+            "id": "42",
+            "start_datetime": "2026-03-11T10:00:00",
+            "end_datetime": "2026-03-11T11:00:00",
+            "pacchetto_cliente_id": "500",
+            "numero_seduta": 3,
+        }],
+        ["101"],
+        "10",
+    )
+
+    assert len(email_inviate) == 1
+    destinatario, oggetto, corpo, allegati = email_inviate[0]
+    assert destinatario == "mario@example.com"
+    assert oggetto == "Conferma appuntamento – Massoterapia & PT"
+    assert "Seduta: 3 di 10" in corpo
+    assert "Luogo: Via Michele Lessona 9, Milano" in corpo
+    assert allegati[0][0] == "appuntamento-42.ics"
+    assert b"DTSTART;TZID=Europe/Rome:20260311T100000" in allegati[0][1]
+
+
+def test_confirmation_email_omits_session_without_package_or_email(authed_client, monkeypatch):
+    _client, fake_supabase = authed_client
+    fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "email": "mario@example.com"}
+    fake_supabase.clienti["202"] = {"id": "202", "nome": "Luca", "email": ""}
+    fake_supabase.servizi["10"] = {"id": "10", "nome": "Massoterapia"}
+    email_inviate = []
+    monkeypatch.setattr(
+        app_module,
+        "invia_email",
+        lambda destinatario, oggetto, corpo, allegati=None: email_inviate.append(corpo) or False,
+    )
+
+    app_module.invia_conferme_appuntamento(
+        [{
+            "id": "43",
+            "start_datetime": "2026-03-11T10:00:00",
+            "end_datetime": "2026-03-11T11:00:00",
+            "pacchetto_cliente_id": None,
+            "numero_seduta": None,
+        }],
+        ["101", "202"],
+        "10",
+    )
+
+    assert len(email_inviate) == 1
+    assert "Seduta:" not in email_inviate[0]
 
 
 def test_post_appuntamenti_can_occupy_slot_without_cliente(authed_client, monkeypatch):

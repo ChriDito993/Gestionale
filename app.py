@@ -4,10 +4,12 @@ import logging
 import uuid
 import smtplib
 import ssl
+import base64
 from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for, g, has_request_context
 from supabase import create_client
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from calendar import monthrange
 from functools import wraps
 from werkzeug.exceptions import HTTPException
@@ -210,8 +212,89 @@ def normalize_datetime_local(value):
         return normalized
 
 
+def escape_ics_value(value):
+    return str(value or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def piega_riga_ics(riga):
+    """Rispetta il limite RFC 5545 di 75 ottetti per ogni riga ICS."""
+    righe = []
+    corrente = ""
+    lunghezza_corrente = 0
+
+    for carattere in riga:
+        lunghezza_carattere = len(carattere.encode("utf-8"))
+        if corrente and lunghezza_corrente + lunghezza_carattere > 75:
+            righe.append(corrente)
+            corrente = f" {carattere}"
+            lunghezza_corrente = 1 + lunghezza_carattere
+        else:
+            corrente += carattere
+            lunghezza_corrente += lunghezza_carattere
+
+    righe.append(corrente)
+    return "\r\n".join(righe)
+
+
+def genera_file_calendario(appuntamento, servizio_nome, info_seduta=None):
+    """Crea un allegato ICS locale, senza note cliniche o dati riservati."""
+    timezone_roma = ZoneInfo("Europe/Rome")
+
+    def parse_data_ora(value):
+        data_ora = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if data_ora.tzinfo is None:
+            return data_ora.replace(tzinfo=timezone_roma)
+        return data_ora.astimezone(timezone_roma)
+
+    inizio = parse_data_ora(appuntamento["start_datetime"])
+    fine = parse_data_ora(appuntamento["end_datetime"])
+    descrizione = f"Appuntamento presso Massoterapia & PT di Christian Di Tommaso."
+    if info_seduta:
+        descrizione += f"\n{info_seduta}"
+
+    uid_dominio = (os.getenv("CALENDAR_UID_DOMAIN") or "gestionale.local").strip()
+    righe = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Massoterapia & PT//Gestionale//IT",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "BEGIN:VEVENT",
+        f"UID:appuntamento-{appuntamento['id']}@{uid_dominio}",
+        f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+        f"DTSTART;TZID=Europe/Rome:{inizio.strftime('%Y%m%dT%H%M%S')}",
+        f"DTEND;TZID=Europe/Rome:{fine.strftime('%Y%m%dT%H%M%S')}",
+        f"SUMMARY:{escape_ics_value(f'Massoterapia & PT – {servizio_nome}')}",
+        "LOCATION:Via Michele Lessona 9\\, Milano",
+        f"DESCRIPTION:{escape_ics_value(descrizione)}",
+        "END:VEVENT",
+        "END:VCALENDAR",
+        ""
+    ]
+    return "\r\n".join(piega_riga_ics(riga) for riga in righe).encode("utf-8")
+
+
+def recupera_dati_pacchetto(pacchetto_id):
+    if not pacchetto_id:
+        return None
+
+    try:
+        response = supabase.table("pacchetti_cliente") \
+            .select("cliente_id,tipi_pacchetto(numero_sedute)") \
+            .eq("id", pacchetto_id) \
+            .single() \
+            .execute()
+        pacchetto = response.data or {}
+        totale_sedute = (pacchetto.get("tipi_pacchetto") or {}).get("numero_sedute")
+        if pacchetto.get("cliente_id") and totale_sedute:
+            return {"cliente_id": pacchetto["cliente_id"], "totale_sedute": totale_sedute}
+    except Exception:
+        app.logger.exception("Impossibile recuperare i dati del pacchetto per l'email di conferma")
+    return None
+
+
 def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
-    """Invia le conferme senza rendere fallibile la creazione dell'appuntamento."""
+    """Invia le conferme dopo il salvataggio, senza rendere fallibile l'appuntamento."""
     if not appuntamenti or not clienti_ids:
         return
 
@@ -221,19 +304,20 @@ def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
             .eq("id", servizio_id) \
             .single() \
             .execute()
-        servizio_nome = (servizio_response.data or {}).get("nome") or "trattamento"
+        servizio_nome = (servizio_response.data or {}).get("nome")
     except Exception:
-        app.logger.exception(
-            "Impossibile recuperare il servizio per le email di conferma servizio_id=%s",
-            servizio_id
-        )
-        servizio_nome = "trattamento"
+        app.logger.exception("Impossibile recuperare il servizio per l'email di conferma")
+        return
+
+    if not servizio_nome:
+        app.logger.warning("Email di conferma non inviata: servizio non disponibile")
+        return
 
     clienti_con_email = []
     for cliente_id in clienti_ids:
         try:
             cliente_response = supabase.table("clienti") \
-                .select("nome,email") \
+                .select("id,nome,email") \
                 .eq("id", cliente_id) \
                 .single() \
                 .execute()
@@ -241,51 +325,61 @@ def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
             if cliente and cliente.get("email"):
                 clienti_con_email.append(cliente)
         except Exception:
-            app.logger.exception(
-                "Impossibile recuperare il cliente per l'email di conferma cliente_id=%s",
-                cliente_id
-            )
+            app.logger.exception("Impossibile recuperare il cliente per l'email di conferma")
 
     for appuntamento in appuntamenti:
         try:
-            dt = datetime.fromisoformat(appuntamento["start_datetime"].replace("Z", "+00:00"))
-            data_formattata = dt.strftime("%d/%m/%Y")
-            ora_formattata = dt.strftime("%H:%M")
-            numero_seduta = appuntamento.get("numero_seduta")
-            info_seduta = (
-                f"\nQuesta sarà la seduta n° {numero_seduta} del tuo pacchetto.\n"
-                if numero_seduta else ""
-            )
+            inizio = datetime.fromisoformat(appuntamento["start_datetime"].replace("Z", "+00:00"))
+            fine = datetime.fromisoformat(appuntamento["end_datetime"].replace("Z", "+00:00"))
+            dati_pacchetto = recupera_dati_pacchetto(appuntamento.get("pacchetto_cliente_id"))
 
             for cliente in clienti_con_email:
+                info_seduta = None
+                if (
+                    dati_pacchetto
+                    and str(dati_pacchetto["cliente_id"]) == str(cliente.get("id"))
+                    and appuntamento.get("numero_seduta")
+                ):
+                    info_seduta = f"Seduta: {appuntamento['numero_seduta']} di {dati_pacchetto['totale_sedute']}"
+
+                righe_seduta = f"{info_seduta}\n" if info_seduta else ""
                 corpo = f"""Ciao {cliente.get('nome') or ''},
 
-Il tuo appuntamento è stato confermato:
+ti confermo il tuo prossimo appuntamento presso Massoterapia & PT di Christian Di Tommaso.
 
-Data: {data_formattata}
-Orario: {ora_formattata}
+I dettagli del tuo appuntamento
+
+Data: {inizio.strftime('%d/%m/%Y')}
+Orario: {inizio.strftime('%H:%M')} – {fine.strftime('%H:%M')}
 Servizio: {servizio_nome}
-{info_seduta}
-Ti aspetto!
+{righe_seduta}Luogo: Via Michele Lessona 9, Milano
 
-MASSOTERAPIA & PT
+Per comodità, trovi in allegato il file per aggiungere l'appuntamento al tuo calendario personale, Google Calendar o Apple Calendar.
+
+Per qualsiasi necessità o variazione, puoi contattarmi direttamente.
+
+A presto!
+
 Christian Di Tommaso
+Massoterapia & PT
+Via Michele Lessona 9, Milano
+ditommaso.massoterapia@gmail.com
 """
-                if not invia_email(cliente["email"], f"Appuntamento confermato – {servizio_nome}", corpo):
-                    app.logger.warning(
-                        "Invio conferma non riuscito appuntamento_id=%s cliente_email=%s",
-                        appuntamento.get("id"),
-                        cliente["email"]
-                    )
+                calendario = genera_file_calendario(appuntamento, servizio_nome, info_seduta)
+                allegati = [(f"appuntamento-{appuntamento['id']}.ics", calendario, "text", "calendar")]
+                if not invia_email(
+                    cliente["email"],
+                    "Conferma appuntamento – Massoterapia & PT",
+                    corpo,
+                    allegati=allegati
+                ):
+                    app.logger.warning("Invio conferma non riuscito appuntamento_id=%s", appuntamento.get("id"))
         except Exception:
             # L'appuntamento e' gia' stato creato: un errore email non deve annullarlo.
-            app.logger.exception(
-                "Errore invio email di conferma appuntamento_id=%s",
-                appuntamento.get("id")
-            )
+            app.logger.exception("Errore invio email di conferma appuntamento_id=%s", appuntamento.get("id"))
 
 
-def invia_email(destinatario, oggetto, corpo):
+def invia_email(destinatario, oggetto, corpo, allegati=None):
     """Invia tramite Gmail SMTP se configurato, altrimenti usa Resend come fallback."""
     # EMAIL_USER / EMAIL_PASS sono mantenute per compatibilita' con la configurazione Render esistente.
     gmail_email = (os.getenv("GMAIL_EMAIL") or os.getenv("EMAIL_USER") or "").strip()
@@ -298,6 +392,13 @@ def invia_email(destinatario, oggetto, corpo):
             messaggio["To"] = destinatario
             messaggio["Subject"] = oggetto
             messaggio.set_content(corpo)
+            for nome_file, contenuto, maintype, subtype in allegati or []:
+                messaggio.add_attachment(
+                    contenuto,
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=nome_file
+                )
 
             context = ssl.create_default_context()
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=10) as smtp:
@@ -305,39 +406,48 @@ def invia_email(destinatario, oggetto, corpo):
                 smtp.send_message(messaggio)
             return True
         except Exception:
-            app.logger.exception("Errore invio email Gmail destinatario=%s", destinatario)
+            app.logger.exception("Errore invio email Gmail")
             return False
 
     resend_api_key = (os.getenv("RESEND_API_KEY") or "").strip()
     if not resend_api_key:
-        app.logger.warning("Nessun provider email configurato: email non inviata a %s", destinatario)
+        app.logger.warning("Nessun provider email configurato")
         return False
 
     try:
+        payload = {
+            "from": os.getenv("RESEND_FROM_EMAIL", "Gestionale <onboarding@resend.dev>"),
+            "to": [destinatario],
+            "subject": oggetto,
+            "text": corpo
+        }
+        if allegati:
+            payload["attachments"] = [
+                {
+                    "filename": nome_file,
+                    "content": base64.b64encode(contenuto).decode("ascii")
+                }
+                for nome_file, contenuto, _maintype, _subtype in allegati
+            ]
+
         response = requests.post(
             "https://api.resend.com/emails",
             headers={
                 "Authorization": f"Bearer {resend_api_key}",
                 "Content-Type": "application/json"
             },
-            json={
-                "from": os.getenv("RESEND_FROM_EMAIL", "Gestionale <onboarding@resend.dev>"),
-                "to": [destinatario],
-                "subject": oggetto,
-                "text": corpo
-            },
+            json=payload,
             timeout=10
         )
         if response.status_code in [200, 201]:
             return True
 
         app.logger.warning(
-            "Errore Resend invio email destinatario=%s status=%s",
-            destinatario,
+            "Errore Resend invio email status=%s",
             response.status_code
         )
     except Exception:
-        app.logger.exception("Errore invio email Resend destinatario=%s", destinatario)
+        app.logger.exception("Errore invio email Resend")
 
     return False
 
