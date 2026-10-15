@@ -2,6 +2,8 @@ import os
 import re
 import logging
 import uuid
+import smtplib
+import ssl
 from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for, g, has_request_context
 from supabase import create_client
 from dotenv import load_dotenv
@@ -11,6 +13,8 @@ from functools import wraps
 from werkzeug.exceptions import HTTPException
 
 from io import BytesIO
+from email.message import EmailMessage
+from email.utils import formataddr
 
 
 import requests
@@ -208,8 +212,7 @@ def normalize_datetime_local(value):
 
 def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
     """Invia le conferme senza rendere fallibile la creazione dell'appuntamento."""
-    resend_api_key = (os.getenv("RESEND_API_KEY") or "").strip()
-    if not resend_api_key or not appuntamenti or not clienti_ids:
+    if not appuntamenti or not clienti_ids:
         return
 
     try:
@@ -268,26 +271,11 @@ Ti aspetto!
 MASSOTERAPIA & PT
 Christian Di Tommaso
 """
-                response = requests.post(
-                    "https://api.resend.com/emails",
-                    headers={
-                        "Authorization": f"Bearer {resend_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "from": os.getenv("RESEND_FROM_EMAIL", "Gestionale <onboarding@resend.dev>"),
-                        "to": [cliente["email"]],
-                        "subject": f"Appuntamento confermato – {servizio_nome}",
-                        "text": corpo
-                    },
-                    timeout=10
-                )
-                if response.status_code not in [200, 201]:
+                if not invia_email(cliente["email"], f"Appuntamento confermato – {servizio_nome}", corpo):
                     app.logger.warning(
-                        "Invio conferma non riuscito appuntamento_id=%s cliente_email=%s status=%s",
+                        "Invio conferma non riuscito appuntamento_id=%s cliente_email=%s",
                         appuntamento.get("id"),
-                        cliente["email"],
-                        response.status_code
+                        cliente["email"]
                     )
         except Exception:
             # L'appuntamento e' gia' stato creato: un errore email non deve annullarlo.
@@ -295,6 +283,63 @@ Christian Di Tommaso
                 "Errore invio email di conferma appuntamento_id=%s",
                 appuntamento.get("id")
             )
+
+
+def invia_email(destinatario, oggetto, corpo):
+    """Invia tramite Gmail SMTP se configurato, altrimenti usa Resend come fallback."""
+    # EMAIL_USER / EMAIL_PASS sono mantenute per compatibilita' con la configurazione Render esistente.
+    gmail_email = (os.getenv("GMAIL_EMAIL") or os.getenv("EMAIL_USER") or "").strip()
+    gmail_app_password = (os.getenv("GMAIL_APP_PASSWORD") or os.getenv("EMAIL_PASS") or "").strip()
+
+    if gmail_email and gmail_app_password:
+        try:
+            messaggio = EmailMessage()
+            messaggio["From"] = formataddr((os.getenv("GMAIL_FROM_NAME", "Gestionale"), gmail_email))
+            messaggio["To"] = destinatario
+            messaggio["Subject"] = oggetto
+            messaggio.set_content(corpo)
+
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=10) as smtp:
+                smtp.login(gmail_email, gmail_app_password)
+                smtp.send_message(messaggio)
+            return True
+        except Exception:
+            app.logger.exception("Errore invio email Gmail destinatario=%s", destinatario)
+            return False
+
+    resend_api_key = (os.getenv("RESEND_API_KEY") or "").strip()
+    if not resend_api_key:
+        app.logger.warning("Nessun provider email configurato: email non inviata a %s", destinatario)
+        return False
+
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {resend_api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "from": os.getenv("RESEND_FROM_EMAIL", "Gestionale <onboarding@resend.dev>"),
+                "to": [destinatario],
+                "subject": oggetto,
+                "text": corpo
+            },
+            timeout=10
+        )
+        if response.status_code in [200, 201]:
+            return True
+
+        app.logger.warning(
+            "Errore Resend invio email destinatario=%s status=%s",
+            destinatario,
+            response.status_code
+        )
+    except Exception:
+        app.logger.exception("Errore invio email Resend destinatario=%s", destinatario)
+
+    return False
 
 
 @app.before_request
@@ -757,6 +802,10 @@ def crea_appuntamento():
     occupato = occupato_raw is True or (
         isinstance(occupato_raw, str) and occupato_raw.strip().lower() in {"true", "1", "si", "sì"}
     )
+    invia_conferma_raw = data.get("invia_conferma_email", False)
+    invia_conferma_email = invia_conferma_raw is True or (
+        isinstance(invia_conferma_raw, str) and invia_conferma_raw.strip().lower() in {"true", "1", "si", "sì"}
+    )
 
     clienti_ids = data.get("clienti_ids") or []
     cliente_id_singolo = data.get("cliente_id")
@@ -973,7 +1022,7 @@ def crea_appuntamento():
             }).eq("id", pacchetto_id).execute()
 
     invalidate_calendar_cache()
-    if not occupato:
+    if invia_conferma_email and not occupato:
         invia_conferme_appuntamento(appuntamenti_creati, clienti_ids, servizio_id)
     return jsonify({
         "success": True,
@@ -1747,14 +1796,6 @@ def chiudi_pacchetto(pacchetto_id):
 @app.route("/invia_promemoria/<appuntamento_id>", methods=["GET"])
 @login_required
 def invia_promemoria(appuntamento_id):
-
-    RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-
-    from flask import jsonify
-
-    if not RESEND_API_KEY:
-        return jsonify({"status": "error", "message": "RESEND_API_KEY non configurata"}), 500
-
     # Recupero appuntamento con servizio e clienti
     appo = supabase.table("appuntamenti") \
         .select("""
@@ -1808,33 +1849,10 @@ MASSOTERAPIA & PT
 Christian Di Tommaso
 """
 
-    try:
-        response = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "from": "Gestionale <onboarding@resend.dev>",
-                "to": [cliente["email"]],
-                "subject": f"Promemoria Appuntamento – {servizio_nome}",
-                "text": corpo
-            },
-            timeout=10
-        )
+    if invia_email(cliente["email"], f"Promemoria Appuntamento – {servizio_nome}", corpo):
+        return jsonify({"status": "success"})
 
-        if response.status_code in [200, 201]:
-            return jsonify({"status": "success"})
-        else:
-            return jsonify({
-                "status": "error",
-                "message": response.text
-            }), 500
-
-    except Exception as e:
-        app.logger.exception("Errore invio email Resend appuntamento_id=%s", appuntamento_id)
-        return jsonify({"status": "error", "message": str(e)}), 500
+    return jsonify({"status": "error", "message": "Errore invio email"}), 500
 
 
 # ===============================

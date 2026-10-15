@@ -238,6 +238,7 @@ def test_post_appuntamenti_sends_confirmation_without_blocking_creation(authed_c
             "start_datetime": "2026-03-11T10:00:00",
             "end_datetime": "2026-03-11T11:00:00",
             "clienti_ids": [101],
+            "invia_conferma_email": True,
         },
     )
 
@@ -247,6 +248,70 @@ def test_post_appuntamenti_sends_confirmation_without_blocking_creation(authed_c
     assert appuntamenti[0]["id"] == "1"
     assert clienti_ids == [101]
     assert servizio_id == 10
+
+
+def test_post_appuntamenti_does_not_send_confirmation_without_opt_in(authed_client, monkeypatch):
+    client, _fake_supabase = authed_client
+    chiamate_email = []
+    monkeypatch.setattr(
+        app_module,
+        "invia_conferme_appuntamento",
+        lambda *args: chiamate_email.append(args),
+    )
+
+    response = client.post(
+        "/api/appuntamenti",
+        json={
+            "servizio_id": 10,
+            "start_datetime": "2026-03-11T10:00:00",
+            "end_datetime": "2026-03-11T11:00:00",
+            "clienti_ids": [101],
+        },
+    )
+
+    assert response.status_code == 200
+    assert chiamate_email == []
+
+
+def test_invia_email_uses_gmail_smtp_when_configured(monkeypatch):
+    class FakeSmtp:
+        instances = []
+
+        def __init__(self, host, port, context, timeout):
+            self.host = host
+            self.port = port
+            self.context = context
+            self.timeout = timeout
+            self.login_args = None
+            self.message = None
+            self.__class__.instances.append(self)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def login(self, email, password):
+            self.login_args = (email, password)
+
+        def send_message(self, message):
+            self.message = message
+
+    monkeypatch.delenv("GMAIL_EMAIL", raising=False)
+    monkeypatch.delenv("GMAIL_APP_PASSWORD", raising=False)
+    monkeypatch.setenv("EMAIL_USER", "studio@example.com")
+    monkeypatch.setenv("EMAIL_PASS", "password-app")
+    monkeypatch.setenv("GMAIL_FROM_NAME", "Studio Test")
+    monkeypatch.setattr(app_module.smtplib, "SMTP_SSL", FakeSmtp)
+
+    assert app_module.invia_email("cliente@example.com", "Conferma", "Testo email") is True
+    smtp = FakeSmtp.instances[0]
+    assert smtp.host == "smtp.gmail.com"
+    assert smtp.port == 465
+    assert smtp.login_args == ("studio@example.com", "password-app")
+    assert smtp.message["To"] == "cliente@example.com"
+    assert smtp.message["Subject"] == "Conferma"
 
 
 def test_post_appuntamenti_can_occupy_slot_without_cliente(authed_client, monkeypatch):

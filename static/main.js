@@ -182,12 +182,14 @@ function sincronizzaStatoOccupatoUI() {
     const occupatoCheckbox = document.getElementById("eventoOccupato");
     const clienteSection = document.getElementById("eventoClienteSection");
     const pacchettoSection = document.getElementById("eventoPacchettoSection");
+    const emailConfermaSection = document.getElementById("eventoEmailConfermaSection");
     const salvaBtn = document.getElementById("btnSalvaEvento");
     if (!occupatoCheckbox) return;
 
     const isOccupato = occupatoCheckbox.checked;
     if (clienteSection) clienteSection.hidden = isOccupato;
     if (pacchettoSection) pacchettoSection.hidden = isOccupato;
+    if (emailConfermaSection) emailConfermaSection.hidden = isOccupato;
     if (salvaBtn) salvaBtn.textContent = isOccupato ? "Occupa Slot" : "Salva Appuntamento";
 }
 
@@ -202,9 +204,11 @@ function inizializzaStatoOccupato() {
 
 function resetStatoOccupato() {
     const occupatoCheckbox = document.getElementById("eventoOccupato");
+    const emailConfermaCheckbox = document.getElementById("eventoInviaConfermaEmail");
     if (!occupatoCheckbox) return;
 
     occupatoCheckbox.checked = false;
+    if (emailConfermaCheckbox) emailConfermaCheckbox.checked = false;
     sincronizzaStatoOccupatoUI();
 }
 
@@ -1395,6 +1399,7 @@ async function salvaEvento() {
     const salvaBtn = document.getElementById("btnSalvaEvento");
     const note = document.getElementById("eventoNote")?.value.trim() || "";
     const occupato = !!document.getElementById("eventoOccupato")?.checked;
+    const inviaConfermaEmail = !!document.getElementById("eventoInviaConfermaEmail")?.checked;
 
     if (salvaBtn?.disabled) return;
 
@@ -1468,6 +1473,7 @@ async function salvaEvento() {
                 servizio_id: servizioId,
                 pacchetto_cliente_id: occupato ? null : pacchettoId,
                 occupato,
+                invia_conferma_email: occupato ? false : inviaConfermaEmail,
                 start_datetime: selectedStart,
                 end_datetime: selectedEnd,
                 ripeti_settimanale: slotsPersonalizzatiPayload ? false : repeatSettimanale,

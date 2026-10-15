@@ -813,6 +813,40 @@ html, button, input, select, textarea {
     line-height: 1.4;
 }
 
+.event-email-section {
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    background: #f8fbff;
+    padding: 12px;
+}
+
+.event-email-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    color: #1d4ed8;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.event-email-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: #2563eb;
+}
+
+.event-email-help {
+    margin: 7px 0 0;
+    color: #1e40af;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
 .event-recurrence-count {
     display: flex;
     flex-direction: column;
