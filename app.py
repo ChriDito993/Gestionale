@@ -295,8 +295,15 @@ def recupera_dati_pacchetto(pacchetto_id):
 
 def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
     """Invia le conferme dopo il salvataggio, senza rendere fallibile l'appuntamento."""
+    esito = {
+        "requested": True,
+        "attempted_count": 0,
+        "sent_count": 0,
+        "failed_count": 0,
+        "skipped_no_email_count": 0,
+    }
     if not appuntamenti or not clienti_ids:
-        return
+        return esito
 
     try:
         servizio_response = supabase.table("servizi") \
@@ -307,11 +314,13 @@ def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
         servizio_nome = (servizio_response.data or {}).get("nome")
     except Exception:
         app.logger.exception("Impossibile recuperare il servizio per l'email di conferma")
-        return
+        esito["failed_count"] = len(appuntamenti) * len(clienti_ids)
+        return esito
 
     if not servizio_nome:
         app.logger.warning("Email di conferma non inviata: servizio non disponibile")
-        return
+        esito["failed_count"] = len(appuntamenti) * len(clienti_ids)
+        return esito
 
     clienti_con_email = []
     for cliente_id in clienti_ids:
@@ -324,8 +333,11 @@ def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
             cliente = cliente_response.data
             if cliente and cliente.get("email"):
                 clienti_con_email.append(cliente)
+            else:
+                esito["skipped_no_email_count"] += 1
         except Exception:
             app.logger.exception("Impossibile recuperare il cliente per l'email di conferma")
+            esito["failed_count"] += len(appuntamenti)
 
     for appuntamento in appuntamenti:
         try:
@@ -371,16 +383,23 @@ ditommaso.massoterapia@gmail.com
 """
                 calendario = genera_file_calendario(appuntamento, servizio_nome, info_seduta)
                 allegati = [(f"appuntamento-{appuntamento['id']}.ics", calendario, "text", "calendar")]
-                if not invia_email(
+                esito["attempted_count"] += 1
+                if invia_email(
                     cliente["email"],
                     "Conferma appuntamento – Massoterapia & PT",
                     corpo,
                     allegati=allegati
                 ):
+                    esito["sent_count"] += 1
+                else:
+                    esito["failed_count"] += 1
                     app.logger.warning("Invio conferma non riuscito appuntamento_id=%s", appuntamento.get("id"))
         except Exception:
             # L'appuntamento e' gia' stato creato: un errore email non deve annullarlo.
+            esito["failed_count"] += len(clienti_con_email)
             app.logger.exception("Errore invio email di conferma appuntamento_id=%s", appuntamento.get("id"))
+
+    return esito
 
 
 def invia_email(destinatario, oggetto, corpo, allegati=None):
@@ -1138,13 +1157,25 @@ def crea_appuntamento():
             }).eq("id", pacchetto_id).execute()
 
     invalidate_calendar_cache()
+    email_confirmation = {
+        "requested": False,
+        "attempted_count": 0,
+        "sent_count": 0,
+        "failed_count": 0,
+        "skipped_no_email_count": 0,
+    }
     if invia_conferma_email and not occupato:
-        invia_conferme_appuntamento(appuntamenti_creati, clienti_ids, servizio_id)
+        email_confirmation = invia_conferme_appuntamento(
+            appuntamenti_creati,
+            clienti_ids,
+            servizio_id
+        ) or email_confirmation
     return jsonify({
         "success": True,
         "numero_seduta": primo_numero_seduta,
         "created_count": len(appuntamenti_creati_ids),
-        "created_ids": appuntamenti_creati_ids
+        "created_ids": appuntamenti_creati_ids,
+        "email_confirmation": email_confirmation
     })
 
 @app.route("/api/appuntamenti/<id>", methods=["PUT"])

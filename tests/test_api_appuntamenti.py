@@ -245,6 +245,13 @@ def test_post_appuntamenti_sends_confirmation_without_blocking_creation(authed_c
 
     def fake_invia_conferme(appuntamenti, clienti_ids, servizio_id):
         chiamate.append((appuntamenti, clienti_ids, servizio_id))
+        return {
+            "requested": True,
+            "attempted_count": 1,
+            "sent_count": 1,
+            "failed_count": 0,
+            "skipped_no_email_count": 0,
+        }
 
     monkeypatch.setattr(app_module, "invia_conferme_appuntamento", fake_invia_conferme)
 
@@ -260,6 +267,7 @@ def test_post_appuntamenti_sends_confirmation_without_blocking_creation(authed_c
     )
 
     assert response.status_code == 200
+    assert response.get_json()["email_confirmation"]["sent_count"] == 1
     assert len(chiamate) == 1
     appuntamenti, clienti_ids, servizio_id = chiamate[0]
     assert appuntamenti[0]["id"] == "1"
@@ -288,6 +296,7 @@ def test_post_appuntamenti_does_not_send_confirmation_without_opt_in(authed_clie
 
     assert response.status_code == 200
     assert chiamate_email == []
+    assert response.get_json()["email_confirmation"]["requested"] is False
 
 
 def test_invia_email_uses_gmail_smtp_when_configured(monkeypatch):
@@ -375,7 +384,7 @@ def test_confirmation_email_includes_package_session_and_ics(authed_client, monk
         ) or True,
     )
 
-    app_module.invia_conferme_appuntamento(
+    esito = app_module.invia_conferme_appuntamento(
         [{
             "id": "42",
             "start_datetime": "2026-03-11T10:00:00",
@@ -395,6 +404,8 @@ def test_confirmation_email_includes_package_session_and_ics(authed_client, monk
     assert "Luogo: Via Michele Lessona 9, Milano" in corpo
     assert allegati[0][0] == "appuntamento-42.ics"
     assert b"DTSTART;TZID=Europe/Rome:20260311T100000" in allegati[0][1]
+    assert esito["sent_count"] == 1
+    assert esito["failed_count"] == 0
 
 
 def test_couple_appointment_sends_email_and_session_to_both_clients(authed_client, monkeypatch):
@@ -416,7 +427,7 @@ def test_couple_appointment_sends_email_and_session_to_both_clients(authed_clien
         ) or True,
     )
 
-    app_module.invia_conferme_appuntamento(
+    esito = app_module.invia_conferme_appuntamento(
         [{
             "id": "44",
             "start_datetime": "2026-03-11T10:00:00",
@@ -432,6 +443,7 @@ def test_couple_appointment_sends_email_and_session_to_both_clients(authed_clien
     assert all(email[1] == "Conferma appuntamento – Massoterapia & PT" for email in email_inviate)
     assert all("Seduta: 3 di 10" in email[2] for email in email_inviate)
     assert all(email[3][0][0] == "appuntamento-44.ics" for email in email_inviate)
+    assert esito["sent_count"] == 2
 
 
 def test_confirmation_email_omits_session_without_package_or_email(authed_client, monkeypatch):
@@ -446,7 +458,7 @@ def test_confirmation_email_omits_session_without_package_or_email(authed_client
         lambda destinatario, oggetto, corpo, allegati=None: email_inviate.append(corpo) or False,
     )
 
-    app_module.invia_conferme_appuntamento(
+    esito = app_module.invia_conferme_appuntamento(
         [{
             "id": "43",
             "start_datetime": "2026-03-11T10:00:00",
@@ -460,6 +472,8 @@ def test_confirmation_email_omits_session_without_package_or_email(authed_client
 
     assert len(email_inviate) == 1
     assert "Seduta:" not in email_inviate[0]
+    assert esito["failed_count"] == 1
+    assert esito["skipped_no_email_count"] == 1
 
 
 def test_post_appuntamenti_can_occupy_slot_without_cliente(authed_client, monkeypatch):
