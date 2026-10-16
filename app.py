@@ -383,7 +383,9 @@ def invia_email(destinatario, oggetto, corpo, allegati=None):
     """Invia tramite Gmail SMTP se configurato, altrimenti usa Resend come fallback."""
     # EMAIL_USER / EMAIL_PASS sono mantenute per compatibilita' con la configurazione Render esistente.
     gmail_email = (os.getenv("GMAIL_EMAIL") or os.getenv("EMAIL_USER") or "").strip()
-    gmail_app_password = (os.getenv("GMAIL_APP_PASSWORD") or os.getenv("EMAIL_PASS") or "").strip()
+    gmail_app_password = "".join(
+        (os.getenv("GMAIL_APP_PASSWORD") or os.getenv("EMAIL_PASS") or "").split()
+    )
 
     if gmail_email and gmail_app_password:
         try:

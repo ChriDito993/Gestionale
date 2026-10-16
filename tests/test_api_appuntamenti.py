@@ -318,7 +318,7 @@ def test_invia_email_uses_gmail_smtp_when_configured(monkeypatch):
     monkeypatch.delenv("GMAIL_EMAIL", raising=False)
     monkeypatch.delenv("GMAIL_APP_PASSWORD", raising=False)
     monkeypatch.setenv("EMAIL_USER", "studio@example.com")
-    monkeypatch.setenv("EMAIL_PASS", "password-app")
+    monkeypatch.setenv("EMAIL_PASS", "pass word app")
     monkeypatch.setenv("GMAIL_FROM_NAME", "Studio Test")
     monkeypatch.setattr(app_module.smtplib, "SMTP_SSL", FakeSmtp)
 
@@ -327,7 +327,7 @@ def test_invia_email_uses_gmail_smtp_when_configured(monkeypatch):
     smtp = FakeSmtp.instances[0]
     assert smtp.host == "smtp.gmail.com"
     assert smtp.port == 465
-    assert smtp.login_args == ("studio@example.com", "password-app")
+    assert smtp.login_args == ("studio@example.com", "passwordapp")
     assert smtp.message["To"] == "cliente@example.com"
     assert smtp.message["Subject"] == "Conferma"
     attachment = list(smtp.message.iter_attachments())[0]
