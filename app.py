@@ -332,12 +332,16 @@ def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
             inizio = datetime.fromisoformat(appuntamento["start_datetime"].replace("Z", "+00:00"))
             fine = datetime.fromisoformat(appuntamento["end_datetime"].replace("Z", "+00:00"))
             dati_pacchetto = recupera_dati_pacchetto(appuntamento.get("pacchetto_cliente_id"))
+            appuntamento_di_coppia = "coppia" in servizio_nome.casefold()
 
             for cliente in clienti_con_email:
                 info_seduta = None
                 if (
                     dati_pacchetto
-                    and str(dati_pacchetto["cliente_id"]) == str(cliente.get("id"))
+                    and (
+                        appuntamento_di_coppia
+                        or str(dati_pacchetto["cliente_id"]) == str(cliente.get("id"))
+                    )
                     and appuntamento.get("numero_seduta")
                 ):
                     info_seduta = f"Seduta: {appuntamento['numero_seduta']} di {dati_pacchetto['totale_sedute']}"

@@ -397,6 +397,43 @@ def test_confirmation_email_includes_package_session_and_ics(authed_client, monk
     assert b"DTSTART;TZID=Europe/Rome:20260311T100000" in allegati[0][1]
 
 
+def test_couple_appointment_sends_email_and_session_to_both_clients(authed_client, monkeypatch):
+    _client, fake_supabase = authed_client
+    fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "email": "mario@example.com"}
+    fake_supabase.clienti["202"] = {"id": "202", "nome": "Anna", "email": "anna@example.com"}
+    fake_supabase.servizi["20"] = {"id": "20", "nome": "Ginnastica posturale di coppia"}
+    fake_supabase.pacchetti_cliente["500"] = {
+        "id": "500",
+        "cliente_id": "101",
+        "tipi_pacchetto": {"numero_sedute": 10},
+    }
+    email_inviate = []
+    monkeypatch.setattr(
+        app_module,
+        "invia_email",
+        lambda destinatario, oggetto, corpo, allegati=None: email_inviate.append(
+            (destinatario, oggetto, corpo, allegati)
+        ) or True,
+    )
+
+    app_module.invia_conferme_appuntamento(
+        [{
+            "id": "44",
+            "start_datetime": "2026-03-11T10:00:00",
+            "end_datetime": "2026-03-11T11:00:00",
+            "pacchetto_cliente_id": "500",
+            "numero_seduta": 3,
+        }],
+        ["101", "202"],
+        "20",
+    )
+
+    assert {email[0] for email in email_inviate} == {"mario@example.com", "anna@example.com"}
+    assert all(email[1] == "Conferma appuntamento – Massoterapia & PT" for email in email_inviate)
+    assert all("Seduta: 3 di 10" in email[2] for email in email_inviate)
+    assert all(email[3][0][0] == "appuntamento-44.ics" for email in email_inviate)
+
+
 def test_confirmation_email_omits_session_without_package_or_email(authed_client, monkeypatch):
     _client, fake_supabase = authed_client
     fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "email": "mario@example.com"}
