@@ -1388,6 +1388,39 @@ function chiudiModal() {
     requestAnimationFrame(() => m.style.display = "none");
 }
 
+function mostraEsitoEmailConferma(esito) {
+    if (!esito?.requested) return;
+
+    const inviate = Number(esito.sent_count) || 0;
+    const fallite = Number(esito.failed_count) || 0;
+    const senzaEmail = Number(esito.skipped_no_email_count) || 0;
+
+    if (inviate > 0 && fallite === 0 && senzaEmail === 0) {
+        mostraToast(
+            inviate === 1 ? "Email di conferma inviata." : `Inviate ${inviate} email di conferma.`,
+            "success"
+        );
+        return;
+    }
+
+    if (inviate > 0) {
+        const dettagli = [];
+        if (fallite > 0) dettagli.push(`${fallite} non inviata${fallite === 1 ? "" : "e"}`);
+        if (senzaEmail > 0) dettagli.push(`${senzaEmail} cliente senza email`);
+        mostraToast(`Conferme inviate: ${inviate}. ${dettagli.join(", ")}.`, "warning");
+        return;
+    }
+
+    if (fallite > 0) {
+        mostraToast("Email di conferma non inviata: controlla la configurazione email.", "warning");
+        return;
+    }
+
+    if (senzaEmail > 0) {
+        mostraToast("Email di conferma non inviata: il cliente non ha un indirizzo email.", "info");
+    }
+}
+
 async function salvaEvento() {
 
     const servizioId = document.getElementById("servizioSelect").value;
@@ -1495,6 +1528,7 @@ async function salvaEvento() {
         } else {
             mostraToast("Appuntamento creato con successo.", "success");
         }
+        mostraEsitoEmailConferma(payload?.email_confirmation);
     } catch (error) {
         console.error("Errore:", error);
         mostraToast(error.message || "Errore nel creare appuntamento", "error");
