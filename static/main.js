@@ -147,6 +147,7 @@ function sincronizzaRicorrenzaEventoUI() {
         .forEach(el => {
             el.disabled = isRecurring;
         });
+    aggiornaRiepilogoNuovoEvento();
 }
 
 function inizializzaRicorrenzaEvento() {
@@ -191,6 +192,7 @@ function sincronizzaStatoOccupatoUI() {
     if (pacchettoSection) pacchettoSection.hidden = isOccupato;
     if (emailConfermaSection) emailConfermaSection.hidden = isOccupato;
     if (salvaBtn) salvaBtn.textContent = isOccupato ? "Occupa Slot" : "Salva Appuntamento";
+    aggiornaRiepilogoNuovoEvento();
 }
 
 function inizializzaStatoOccupato() {
@@ -219,16 +221,19 @@ function creaRigaSlotPersonalizzato(slot = null) {
     const inputData = document.createElement("input");
     inputData.type = "date";
     inputData.className = "input-apple event-custom-slot-date";
+    inputData.setAttribute("aria-label", "Data aggiuntiva");
 
     const inputOraInizio = document.createElement("input");
     inputOraInizio.type = "time";
     inputOraInizio.step = "900";
     inputOraInizio.className = "input-apple event-custom-slot-start";
+    inputOraInizio.setAttribute("aria-label", "Ora di inizio aggiuntiva");
 
     const inputOraFine = document.createElement("input");
     inputOraFine.type = "time";
     inputOraFine.step = "900";
     inputOraFine.className = "input-apple event-custom-slot-end";
+    inputOraFine.setAttribute("aria-label", "Ora di fine aggiuntiva");
 
     if (slot?.startLocal instanceof Date && !Number.isNaN(slot.startLocal.getTime())) {
         inputData.value = formatDateForInput(slot.startLocal);
@@ -246,6 +251,7 @@ function creaRigaSlotPersonalizzato(slot = null) {
     removeBtn.textContent = "✕";
     removeBtn.addEventListener("click", () => {
         row.remove();
+        aggiornaRiepilogoNuovoEvento();
     });
 
     row.appendChild(inputData);
@@ -1358,6 +1364,65 @@ async function aggiornaOrario(infoOrEvent) {
    MODALE NUOVO APPUNTAMENTO
 =================================*/
 
+function aggiornaRiepilogoNuovoEvento() {
+    const riepilogo = document.getElementById("eventoRiepilogo");
+    if (!riepilogo) return;
+
+    const occupato = !!document.getElementById("eventoOccupato")?.checked;
+    const ripeti = !!document.getElementById("eventoRipetiSettimanale")?.checked;
+    const numero = Number.parseInt(document.getElementById("eventoNumeroOccorrenze")?.value, 10);
+    const righe = Array.from(document.querySelectorAll("#eventoSlotPersonalizzatiList .event-custom-slot-row"));
+    const dateAggiuntive = righe.filter(row => Array.from(row.querySelectorAll("input")).some(input => input.value)).length;
+    const totale = ripeti ? Math.min(52, Math.max(2, numero || 2)) : 1 + dateAggiuntive;
+    const orari = leggiDataOraDalModalNuovoEvento();
+    const minuti = orari ? Math.round((orari.endLocal - orari.startLocal) / 60000) : 0;
+    const durata = document.getElementById("eventoDurata");
+    if (durata) durata.textContent = minuti > 0 ? `${minuti} min` : "Controlla gli orari";
+
+    const tipo = occupato ? (totale === 1 ? "blocco occupato" : "blocchi occupati")
+        : (totale === 1 ? "appuntamento" : "appuntamenti");
+    riepilogo.textContent = `${totale} ${tipo}${minuti > 0 ? ` · ${minuti} min${totale > 1 ? " a seduta" : ""}` : ""}`;
+    // Le date personalizzate possono avere durate diverse: non generalizzare la prima.
+    if (!ripeti && dateAggiuntive > 0) riepilogo.textContent = `${totale} ${tipo} · orari personalizzati`;
+
+    const inviaEmail = !!document.getElementById("eventoInviaConfermaEmail")?.checked;
+    const conEmail = clientiSelezionati.filter(cliente => String(cliente.email || "").trim()).length;
+    const statoEmail = document.getElementById("eventoRiepilogoEmail");
+    if (statoEmail) {
+        statoEmail.textContent = occupato ? "Nessun cliente associato"
+            : !inviaEmail ? "Conferma email non richiesta"
+            : conEmail > 0 ? `Conferma richiesta per ${conEmail} ${conEmail === 1 ? "persona" : "persone"}`
+            : "Nessun indirizzo email disponibile";
+    }
+
+    const hintEmail = document.getElementById("eventoEmailHint");
+    if (hintEmail) {
+        const calendario = "Include il file per aggiungere la seduta al calendario.";
+        hintEmail.textContent = !clientiSelezionati.length ? calendario
+            : !conEmail ? "I clienti selezionati non hanno un indirizzo email in anagrafica."
+            : conEmail < clientiSelezionati.length ? `Solo ${conEmail} dei clienti selezionati ha un indirizzo email. ${calendario}`
+            : clientiSelezionati.length === 2 ? `La riceveranno entrambe le persone. ${calendario}` : calendario;
+    }
+
+    const badge = document.getElementById("eventoOpzioniAttive");
+    if (badge) {
+        const attive = [];
+        if (document.getElementById("eventoNote")?.value.trim()) attive.push("Note");
+        if (ripeti) attive.push("Serie");
+        if (!ripeti && dateAggiuntive > 0) attive.push("Altre date");
+        badge.textContent = attive.join(" · ");
+        badge.hidden = attive.length === 0;
+    }
+}
+
+function inizializzaRiepilogoNuovoEvento() {
+    const modal = document.getElementById("eventoModal");
+    if (!modal || modal.dataset.summaryBound === "1") return;
+    modal.dataset.summaryBound = "1";
+    modal.addEventListener("input", aggiornaRiepilogoNuovoEvento);
+    modal.addEventListener("change", aggiornaRiepilogoNuovoEvento);
+}
+
 function apriModal() {
     clientiSelezionati = [];
 
@@ -1367,6 +1432,10 @@ function apriModal() {
 
     const modal = document.getElementById("eventoModal");
     requestAnimationFrame(() => modal.style.display = "block");
+    inizializzaRiepilogoNuovoEvento();
+    modal.querySelectorAll("details").forEach(details => { details.open = false; });
+    const contenuto = modal.querySelector(".event-create-body");
+    if (contenuto) contenuto.scrollTop = 0;
 
     inizializzaRicercaClienti();
     aggiornaClientiSelezionati();
@@ -1377,6 +1446,7 @@ function apriModal() {
 
     const noteInput = document.getElementById("eventoNote");
     if (noteInput) noteInput.value = "";
+    aggiornaRiepilogoNuovoEvento();
 
     const searchInput = document.getElementById("searchCliente");
     if (searchInput) requestAnimationFrame(() => searchInput.focus());
@@ -1394,6 +1464,8 @@ function mostraEsitoEmailConferma(esito) {
     const inviate = Number(esito.sent_count) || 0;
     const fallite = Number(esito.failed_count) || 0;
     const senzaEmail = Number(esito.skipped_no_email_count) || 0;
+    const messaggiErrore = [...new Set((esito.errors || []).map(errore => errore.message).filter(Boolean))];
+    const motivoErrore = messaggiErrore.join(" ");
 
     if (inviate > 0 && fallite === 0 && senzaEmail === 0) {
         mostraToast(
@@ -1405,14 +1477,15 @@ function mostraEsitoEmailConferma(esito) {
 
     if (inviate > 0) {
         const dettagli = [];
-        if (fallite > 0) dettagli.push(`${fallite} non inviata${fallite === 1 ? "" : "e"}`);
-        if (senzaEmail > 0) dettagli.push(`${senzaEmail} cliente senza email`);
+        if (fallite > 0) dettagli.push(`${fallite} ${fallite === 1 ? "non inviata" : "non inviate"}`);
+        if (senzaEmail > 0) dettagli.push(`${senzaEmail} ${senzaEmail === 1 ? "cliente" : "clienti"} senza email`);
+        if (motivoErrore) dettagli.push(motivoErrore);
         mostraToast(`Conferme inviate: ${inviate}. ${dettagli.join(", ")}.`, "warning");
         return;
     }
 
     if (fallite > 0) {
-        mostraToast("Email di conferma non inviata: controlla la configurazione email.", "warning");
+        mostraToast(motivoErrore || "Email di conferma non inviata: controlla la configurazione email.", "warning");
         return;
     }
 
@@ -1668,6 +1741,7 @@ function apriModificaModal() {
 
     const modal = document.getElementById("modificaModal");
     if (!modal) return;
+    autoClosePromemoria();
     requestAnimationFrame(() => {
         modal.style.display = "block";
         modal.classList.add("modal-active");
@@ -1714,6 +1788,7 @@ function chiudiModificaModal() {
     const modal = document.getElementById("modificaModal");
     if (!modal) return;
 
+    autoClosePromemoria();
     modal.classList.remove("modal-active");
     requestAnimationFrame(() => modal.style.display = "none");
 }
@@ -1875,14 +1950,10 @@ function inviaPromemoria() {
         .then(async (response) => {
             const contentType = response.headers.get("content-type");
 
-            if (!response.ok) {
-                const text = await response.text();
-                console.error("Errore backend:", text);
-                throw new Error("Errore backend");
-            }
-
             if (contentType && contentType.includes("application/json")) {
-                return response.json();
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.message || "Errore invio email");
+                return data;
             } else {
                 const text = await response.text();
                 console.error("Risposta non JSON:", text);
@@ -1893,12 +1964,12 @@ function inviaPromemoria() {
             if (data.status === "success") {
                 mostraToast("Email inviata con successo", "success");
             } else {
-                mostraToast("Errore invio email", "error");
+                mostraToast(data.message || "Errore invio email", "error");
             }
         })
         .catch(error => {
             console.error("Errore invio promemoria:", error);
-            mostraToast("Errore invio email", "error");
+            mostraToast(error.message || "Errore invio email", "error");
         });
 }
 
@@ -1978,34 +2049,24 @@ function inviaPromemoriaSMS() {
 }
 
 function togglePromemoriaOptions() {
+    const mainBtn = document.getElementById("btnPromemoriaMain");
+    if (!mainBtn) return;
+    impostaStatoPromemoria(mainBtn.getAttribute("aria-expanded") !== "true");
+}
 
+function impostaStatoPromemoria(aperto) {
     const options = document.getElementById("promemoriaOptions");
     const mainBtn = document.getElementById("btnPromemoriaMain");
-
     if (!options || !mainBtn) return;
 
-    const isHidden = options.classList.contains("promemoria-hidden");
-
-    if (isHidden) {
-        options.classList.remove("promemoria-hidden");
-        options.classList.add("promemoria-visible");
-        mainBtn.textContent = "Chiudi";
-    } else {
-        options.classList.remove("promemoria-visible");
-        options.classList.add("promemoria-hidden");
-        mainBtn.textContent = "Invia Promemoria";
-    }
+    options.hidden = !aperto;
+    options.classList.toggle("promemoria-hidden", !aperto);
+    options.classList.toggle("promemoria-visible", aperto);
+    mainBtn.setAttribute("aria-expanded", String(aperto));
 }
 
 function autoClosePromemoria() {
-    const options = document.getElementById("promemoriaOptions");
-    const mainBtn = document.getElementById("btnPromemoriaMain");
-
-    if (!options || !mainBtn) return;
-
-    options.classList.remove("promemoria-visible");
-    options.classList.add("promemoria-hidden");
-    mainBtn.textContent = "Invia Promemoria";
+    impostaStatoPromemoria(false);
 }
 
 
@@ -2263,7 +2324,10 @@ function aggiornaClientiSelezionati() {
 
     clientiSelezionati.forEach(cliente => {
 
-        const badge = document.createElement("span");
+        const badge = document.createElement("button");
+        badge.type = "button";
+        badge.className = "event-client-chip";
+        badge.setAttribute("aria-label", `Rimuovi ${cliente.nome || ""} ${cliente.cognome || ""}`.trim());
         badge.textContent = cliente.nome + " " + cliente.cognome + " ✕";
 
         badge.onclick = function() {
@@ -2273,6 +2337,7 @@ function aggiornaClientiSelezionati() {
 
         selezionatiDiv.appendChild(badge);
     });
+    aggiornaRiepilogoNuovoEvento();
 
     if (clientiSelezionati.length > 0) {
         caricaPacchettiCliente(clientiSelezionati[0].id);

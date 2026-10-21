@@ -6,86 +6,145 @@
     <title>MASSOTERAPIA & PT di Christian Di Tommaso</title>
     <link rel="stylesheet" href="{{ static_file('style.css') }}">
 </head>
-<body class="cliente-dettaglio-page">
+<body class="cliente-dettaglio-page client-profile-page">
 
 <div class="app-container">
 
     <header class="app-header">
-        <h1>{{ cliente.nome }} {{ cliente.cognome }}</h1>
+        <div class="profile-identity">
+            <span class="profile-avatar" aria-hidden="true">{{ (cliente.nome or '?')[:1]|upper }}{{ (cliente.cognome or '')[:1]|upper }}</span>
+            <div>
+                <p class="profile-eyebrow">Scheda cliente</p>
+                <h1>{{ cliente.nome }} {{ cliente.cognome }}</h1>
+            </div>
+        </div>
 
-        <div class="detail-header-actions">
+        <nav class="detail-header-actions" aria-label="Navigazione scheda cliente">
             <a href="/" class="btn-primary">
-                ← Torna al Calendario
+                Calendario
             </a>
 
             <a href="/clienti" class="btn-primary">
-                ← Torna ai Clienti
+                Archivio clienti
             </a>
 
-            <button onclick="apriEliminaClienteModal()" class="btn-inline-danger">
-                Elimina Cliente
+            <button type="button" onclick="apriEliminaClienteModal()" class="btn-inline-danger">
+                Elimina cliente
             </button>
-        </div>
+        </nav>
     </header>
 
     <!-- MINI DASHBOARD CLIENTE -->
-    <div class="detail-card">
-        <h3>Riepilogo Cliente</h3>
+    <section class="detail-card profile-summary" aria-labelledby="profileSummaryTitle">
+        <h3 id="profileSummaryTitle">Riepilogo</h3>
         <div class="detail-stats-grid">
             <div class="detail-stat-card">
-                <p class="detail-stat-label">Sedute Totali</p>
+                <p class="detail-stat-label">Sedute totali</p>
                 <p class="detail-stat-value">{{ stats_totali or 0 }}</p>
             </div>
             <div class="detail-stat-card">
-                <p class="detail-stat-label">Sedute Rimanenti</p>
+                <p class="detail-stat-label">Sedute rimanenti</p>
                 <p class="detail-stat-value">{{ stats_rimanenti or 0 }}</p>
             </div>
             <div class="detail-stat-card">
-                <p class="detail-stat-label">Ultima Visita</p>
+                <p class="detail-stat-label">Ultima visita</p>
                 <p class="detail-stat-secondary">{{ ultima_visita or '-' }}</p>
             </div>
             <div class="detail-stat-card">
-                <p class="detail-stat-label">Prossima Visita</p>
+                <p class="detail-stat-label">Prossima visita</p>
                 <p class="detail-stat-secondary">{{ prossima_visita or '-' }}</p>
             </div>
         </div>
-    </div>
+    </section>
 
-    <div class="detail-card">
+    <div class="profile-layout">
+    <aside class="profile-sidebar" aria-label="Informazioni del cliente">
+        <section class="detail-card">
+            <div class="profile-section-heading">
+                <h3>Anagrafica</h3>
+                <button type="button" onclick="apriModificaCliente()" class="btn-primary btn-anagrafica-open">Modifica</button>
+            </div>
+            <dl class="profile-contact-list">
+                <div><dt>Telefono</dt><dd>{{ cliente.telefono or "Non indicato" }}</dd></div>
+                <div><dt>Email</dt><dd>{{ cliente.email or "Non indicata" }}</dd></div>
+                <div><dt>Data di nascita</dt><dd>{{ cliente.data_nascita or "Non indicata" }}</dd></div>
+            </dl>
+        </section>
+
+        <section class="detail-card">
+            <h3>Note cliniche</h3>
+            <form method="POST" action="/cliente/{{ cliente.id }}/note" class="profile-notes-form">
+                <label for="profileClinicalNotes" class="sr-only">Note cliniche del cliente</label>
+                <textarea id="profileClinicalNotes" name="note_cliniche" rows="6" placeholder="Annotazioni sul percorso del cliente...">{{ cliente.note_cliniche or "" }}</textarea>
+                <button class="btn-primary" type="submit">Salva note</button>
+            </form>
+        </section>
+    </aside>
+
+    <div class="profile-main">
+    <!-- APPUNTAMENTI FUTURI -->
+    <section class="detail-card">
+        <div class="profile-section-heading">
+            <h3>Prossimi appuntamenti</h3>
+            <span class="profile-count">{{ appuntamenti|length if appuntamenti else 0 }}</span>
+        </div>
+
+        {% if appuntamenti and appuntamenti|length > 0 %}
+            <div class="cliente-app-section">
+                {% for app in appuntamenti %}
+                <a href="/?open_event={{ app.id }}" class="cliente-app-card future cliente-app-link">
+                    <div class="cliente-app-info">
+                        <span class="cliente-app-timeline-dot" aria-hidden="true"></span>
+                        <div class="cliente-app-date">{{ app.data_formattata }}</div>
+                        <div class="cliente-app-service">{{ app.servizio }}</div>
+                    </div>
+                    <span class="profile-open-arrow" aria-hidden="true">↗</span>
+                </a>
+                {% endfor %}
+            </div>
+            <a href="/cliente/{{ cliente.id }}/promemoria" target="_blank" rel="noopener" class="btn-primary btn-pdf-promemoria">
+                Genera PDF promemoria
+            </a>
+        {% else %}
+            <p class="detail-empty-state">Nessun appuntamento futuro.</p>
+        {% endif %}
+    </section>
+
+    <div class="detail-card profile-payments">
         <h3>Pagamenti</h3>
 
-        <div class="detail-stats-grid">
+        <div class="detail-stats-grid profile-payment-stats">
             <div class="detail-stat-card">
-                <p class="detail-stat-label">Totale Incassato</p>
+                <p class="detail-stat-label">Totale incassato</p>
                 <p class="detail-stat-value">{{ pagamenti_totale_label or "€ 0,00" }}</p>
             </div>
             <div class="detail-stat-card">
-                <p class="detail-stat-label">Numero Pagamenti</p>
+                <p class="detail-stat-label">Numero pagamenti</p>
                 <p class="detail-stat-value">{{ pagamenti_count or 0 }}</p>
             </div>
             <div class="detail-stat-card">
-                <p class="detail-stat-label">Ultimo Pagamento</p>
+                <p class="detail-stat-label">Ultimo pagamento</p>
                 <p class="detail-stat-secondary">{{ pagamenti_ultimo or "-" }}</p>
             </div>
         </div>
 
-        <div style="margin-top:16px;">
+        <div class="profile-payments-list">
             {% if pagamenti_cliente and pagamenti_cliente|length > 0 %}
-                <div style="overflow-x:auto;">
-                    <table style="width:100%; border-collapse:collapse; min-width:560px;">
+                <div class="profile-table-scroll" role="region" aria-label="Storico pagamenti del cliente" tabindex="0">
+                    <table class="profile-payments-table">
                         <thead>
                             <tr>
-                                <th style="text-align:left; padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.12); font-size:12px; text-transform:uppercase; color:#6b7280;">Data</th>
-                                <th style="text-align:left; padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.12); font-size:12px; text-transform:uppercase; color:#6b7280;">Pagamento</th>
-                                <th style="text-align:left; padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.12); font-size:12px; text-transform:uppercase; color:#6b7280;">Note</th>
+                                <th scope="col">Data</th>
+                                <th scope="col">Importo</th>
+                                <th scope="col">Note</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for pagamento in pagamenti_cliente %}
                             <tr>
-                                <td style="padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.08);">{{ pagamento.data_formattata }}</td>
-                                <td style="padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.08); font-weight:600;">{{ pagamento.importo_label }}</td>
-                                <td style="padding:10px 8px; border-bottom:1px solid rgba(17,24,39,0.08);">{{ pagamento.note }}</td>
+                                <td>{{ pagamento.data_formattata }}</td>
+                                <td class="profile-payment-amount">{{ pagamento.importo_label }}</td>
+                                <td>{{ pagamento.note }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -97,38 +156,15 @@
         </div>
     </div>
 
-    <!-- CARD INFORMAZIONI -->
-    <div class="detail-card">
-
-        <div class="info-section">
-            <p><strong>Telefono:</strong> {{ cliente.telefono or "-" }}</p>
-            <p><strong>Email:</strong> {{ cliente.email or "-" }}</p>
-            <p><strong>Data nascita:</strong> {{ cliente.data_nascita or "-" }}</p>
-        </div>
-
-        <button onclick="apriModificaCliente()" class="btn-primary btn-anagrafica-open">
-            Modifica Anagrafica
-        </button>
-
-        <hr>
-
-        <h3>Note Cliniche</h3>
-
-        <form method="POST" action="/cliente/{{ cliente.id }}/note">
-            <textarea name="note_cliniche" rows="5">{{ cliente.note_cliniche or "" }}</textarea>
-            <button class="btn-primary" type="submit">Salva Note</button>
-        </form>
-
-    </div>
-
     <!-- CARD PACCHETTI -->
-    <div class="detail-card detail-card-packages">
-        <h3>Assegna Nuovo Pacchetto</h3>
+    <div class="detail-card detail-card-packages profile-package-assignment">
+        <h3>Assegna un nuovo pacchetto</h3>
 
         <form method="POST" action="/assegna_pacchetto" class="package-form">
             <input type="hidden" name="cliente_id" value="{{ cliente.id }}">
 
-            <select name="tipo_pacchetto_id" required class="input-apple">
+            <label for="profilePackageType" class="sr-only">Tipo di pacchetto da assegnare</label>
+            <select id="profilePackageType" name="tipo_pacchetto_id" required class="input-apple">
                 <option value="">Seleziona pacchetto</option>
                 {% for pac in tipi_pacchetto %}
                     <option value="{{ pac.id }}">
@@ -142,8 +178,11 @@
     </div>
 
     <!-- CARD PACCHETTI ATTIVI -->
-    <div class="detail-card detail-card-packages">
-        <h3>Pacchetti Attivi</h3>
+    <div class="detail-card detail-card-packages profile-active-packages">
+        <div class="profile-section-heading">
+            <h3>Pacchetti attivi</h3>
+            <span class="profile-count">{{ pacchetti_cliente|length if pacchetti_cliente else 0 }}</span>
+        </div>
 
         {% if pacchetti_cliente %}
             <ul class="pacchetti-list">
@@ -179,47 +218,15 @@
     </div>
 
     <!-- ========================= -->
-    <!-- APPUNTAMENTI FUTURI -->
-    <!-- ========================= -->
-    <div class="detail-card">
-        <h3>Appuntamenti Futuri</h3>
-
-        {% if appuntamenti and appuntamenti|length > 0 %}
-            <div class="cliente-app-section">
-                {% for app in appuntamenti %}
-                <a href="/?open_event={{ app.id }}" class="cliente-app-card future cliente-app-link">
-                    <div class="cliente-app-info">
-                        <span class="cliente-app-timeline-dot" aria-hidden="true"></span>
-                        <div class="cliente-app-date">{{ app.data_formattata }}</div>
-                        <div class="cliente-app-service">
-                            {{ app.servizio }}
-                        </div>
-                    </div>
-                    <div class="cliente-app-actions"></div>
-                </a>
-                {% endfor %}
-            </div>
-
-            <a href="/cliente/{{ cliente.id }}/promemoria"
-               target="_blank"
-               class="btn-primary btn-pdf-promemoria">
-                Genera PDF Promemoria
-            </a>
-
-        {% else %}
-            <p class="detail-empty-state">Nessun appuntamento futuro.</p>
-        {% endif %}
-    </div>
-
-
-    <!-- ========================= -->
     <!-- APPUNTAMENTI PASSATI -->
     <!-- ========================= -->
     <div class="detail-card">
         <div class="storico-toggle-wrapper">
-            <h3>Storico Appuntamenti</h3>
+            <h3>Storico appuntamenti</h3>
             <button type="button"
                     class="storico-toggle-btn"
+                    aria-expanded="false"
+                    {% if storico_appuntamenti %}aria-controls="storicoSection"{% else %}disabled{% endif %}
                     onclick="toggleStorico()">
                 Mostra storico
             </button>
@@ -274,13 +281,15 @@
         {% endif %}
     </div>
 
+    </div>
+    </div>
 </div>
 
 <!-- MODALE ELIMINA CLIENTE -->
-<div id="eliminaClienteModal" class="modal">
+<div id="eliminaClienteModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="profileDeleteTitle">
     <div class="modal-content confirm-modal">
-        <span class="close" onclick="chiudiEliminaClienteModal()">✖</span>
-        <h3 class="confirm-modal-title">Conferma Eliminazione</h3>
+        <button type="button" class="profile-modal-close" onclick="chiudiEliminaClienteModal()" aria-label="Chiudi conferma eliminazione">×</button>
+        <h3 class="confirm-modal-title" id="profileDeleteTitle">Elimina cliente</h3>
         <p class="confirm-modal-text">
             Questa operazione eliminerà definitivamente il cliente e tutti i dati collegati.
         </p>
@@ -298,18 +307,20 @@
 </div>
 
 <!-- MODALE MODIFICA ANAGRAFICA -->
-<div id="modificaClienteModal" class="modal">
+<div id="modificaClienteModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="profileEditTitle">
     <div class="modal-content">
-        <span class="close" onclick="chiudiModificaCliente()">✖</span>
-        <h3>Modifica Anagrafica</h3>
+        <button type="button" class="profile-modal-close" onclick="chiudiModificaCliente()" aria-label="Chiudi modifica anagrafica">×</button>
+        <h3 id="profileEditTitle">Modifica anagrafica</h3>
 
-        <input type="text" id="modNome" value="{{ cliente.nome or '' }}" placeholder="Nome">
-        <input type="text" id="modCognome" value="{{ cliente.cognome or '' }}" placeholder="Cognome">
-        <input type="text" id="modTelefono" value="{{ cliente.telefono or '' }}" placeholder="Telefono">
-        <input type="email" id="modEmail" value="{{ cliente.email or '' }}" placeholder="Email">
+        <div class="profile-edit-fields">
+            <div><label for="modNome">Nome</label><input type="text" id="modNome" value="{{ cliente.nome or '' }}" placeholder="Nome"></div>
+            <div><label for="modCognome">Cognome</label><input type="text" id="modCognome" value="{{ cliente.cognome or '' }}" placeholder="Cognome"></div>
+            <div><label for="modTelefono">Telefono</label><input type="text" id="modTelefono" value="{{ cliente.telefono or '' }}" placeholder="Telefono"></div>
+            <div><label for="modEmail">Email</label><input type="email" id="modEmail" value="{{ cliente.email or '' }}" placeholder="Email"></div>
+        </div>
 
-        <button class="btn-primary" onclick="salvaModificaCliente('{{ cliente.id }}')">
-            Salva Modifiche
+        <button type="button" class="btn-primary profile-edit-save" onclick="salvaModificaCliente('{{ cliente.id }}')">
+            Salva modifiche
         </button>
     </div>
 </div>
@@ -350,9 +361,11 @@ function toggleStorico() {
         section.classList.remove("storico-collapsed");
         section.classList.add("storico-fade");
         btn.textContent = "Nascondi storico";
+        btn.setAttribute("aria-expanded", "true");
     } else {
         section.classList.add("storico-collapsed");
         btn.textContent = "Mostra storico";
+        btn.setAttribute("aria-expanded", "false");
     }
 }
 

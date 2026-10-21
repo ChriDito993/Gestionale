@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from calendar import monthrange
 from functools import wraps
 from werkzeug.exceptions import HTTPException
+from werkzeug.utils import secure_filename
 
 from io import BytesIO
 from email.message import EmailMessage
@@ -236,8 +237,16 @@ def piega_riga_ics(riga):
     return "\r\n".join(righe)
 
 
-def genera_file_calendario(appuntamento, servizio_nome, info_seduta=None):
-    """Crea un allegato ICS locale, senza note cliniche o dati riservati."""
+def nome_file_calendario(nome_cliente, numero_seduta=None):
+    """Nome leggibile dell'allegato, ripulito dai caratteri non sicuri per i file."""
+    nome_base = secure_filename("-".join((nome_cliente or "").split()))[:120].strip(".-_") or "Appuntamento"
+    nome_base = re.sub(r"[-_]+", "-", nome_base)
+    suffisso = f"-seduta-{secure_filename(str(numero_seduta))}" if numero_seduta else ""
+    return f"{nome_base}{suffisso}.ics"
+
+
+def genera_file_calendario(appuntamento, servizio_nome, info_seduta=None, nome_cliente=None):
+    """Crea un allegato ICS personalizzato, senza note cliniche."""
     timezone_roma = ZoneInfo("Europe/Rome")
 
     def parse_data_ora(value):
@@ -252,6 +261,11 @@ def genera_file_calendario(appuntamento, servizio_nome, info_seduta=None):
     if info_seduta:
         descrizione += f"\n{info_seduta}"
 
+    nome_cliente = " ".join((nome_cliente or "").split())
+    titolo = f"{nome_cliente} – {servizio_nome}" if nome_cliente else f"Massoterapia & PT – {servizio_nome}"
+    if info_seduta:
+        titolo += f" – {info_seduta.replace('Seduta:', 'Seduta', 1)}"
+
     uid_dominio = (os.getenv("CALENDAR_UID_DOMAIN") or "gestionale.local").strip()
     righe = [
         "BEGIN:VCALENDAR",
@@ -264,7 +278,7 @@ def genera_file_calendario(appuntamento, servizio_nome, info_seduta=None):
         f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
         f"DTSTART;TZID=Europe/Rome:{inizio.strftime('%Y%m%dT%H%M%S')}",
         f"DTEND;TZID=Europe/Rome:{fine.strftime('%Y%m%dT%H%M%S')}",
-        f"SUMMARY:{escape_ics_value(f'Massoterapia & PT – {servizio_nome}')}",
+        f"SUMMARY:{escape_ics_value(titolo)}",
         "LOCATION:Via Michele Lessona 9\\, Milano",
         f"DESCRIPTION:{escape_ics_value(descrizione)}",
         "END:VEVENT",
@@ -301,6 +315,7 @@ def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
         "sent_count": 0,
         "failed_count": 0,
         "skipped_no_email_count": 0,
+        "errors": [],
     }
     if not appuntamenti or not clienti_ids:
         return esito
@@ -326,7 +341,7 @@ def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
     for cliente_id in clienti_ids:
         try:
             cliente_response = supabase.table("clienti") \
-                .select("id,nome,email") \
+                .select("id,nome,cognome,email") \
                 .eq("id", cliente_id) \
                 .single() \
                 .execute()
@@ -381,18 +396,31 @@ Massoterapia & PT
 Via Michele Lessona 9, Milano
 ditommaso.massoterapia@gmail.com
 """
-                calendario = genera_file_calendario(appuntamento, servizio_nome, info_seduta)
-                allegati = [(f"appuntamento-{appuntamento['id']}.ics", calendario, "text", "calendar")]
+                nome_cliente = " ".join(
+                    str(cliente.get(campo) or "").strip() for campo in ("nome", "cognome")
+                ).strip()
+                calendario = genera_file_calendario(appuntamento, servizio_nome, info_seduta, nome_cliente)
+                nome_allegato = nome_file_calendario(
+                    nome_cliente, appuntamento.get("numero_seduta") if info_seduta else None
+                )
+                allegati = [(nome_allegato, calendario, "text", "calendar")]
                 esito["attempted_count"] += 1
-                if invia_email(
+                risultato_email = invia_email_dettagliata(
                     cliente["email"],
                     "Conferma appuntamento – Massoterapia & PT",
                     corpo,
                     allegati=allegati
-                ):
+                )
+                if risultato_email["success"]:
                     esito["sent_count"] += 1
                 else:
                     esito["failed_count"] += 1
+                    errore = {
+                        "code": risultato_email["error_code"],
+                        "message": risultato_email["message"],
+                    }
+                    if errore not in esito["errors"]:
+                        esito["errors"].append(errore)
                     app.logger.warning("Invio conferma non riuscito appuntamento_id=%s", appuntamento.get("id"))
         except Exception:
             # L'appuntamento e' gia' stato creato: un errore email non deve annullarlo.
@@ -403,14 +431,61 @@ ditommaso.massoterapia@gmail.com
 
 
 def invia_email(destinatario, oggetto, corpo, allegati=None):
-    """Invia tramite Gmail SMTP se configurato, altrimenti usa Resend come fallback."""
+    """Mantiene il risultato booleano usato dai chiamanti esistenti."""
+    return invia_email_dettagliata(destinatario, oggetto, corpo, allegati)["success"]
+
+
+EMAIL_ERROR_MESSAGES = {
+    "invalid_provider": "Servizio email non valido: imposta EMAIL_PROVIDER su gmail o resend.",
+    "missing_configuration": "Configurazione email incompleta per il servizio selezionato.",
+    "authentication_failed": "Autenticazione email non riuscita: controlla le credenziali del servizio.",
+    "network_unreachable": "Connessione al servizio email non disponibile. Se usi Gmail su Render Free, le porte SMTP sono bloccate.",
+    "connection_failed": "Impossibile collegarsi al servizio email: controlla la connessione del server.",
+    "timeout": "Il servizio email non ha risposto in tempo: invio non confermato.",
+    "tls_failed": "Connessione sicura al servizio email non riuscita.",
+    "sender_not_verified": "Mittente email non autorizzato: verifica il dominio e l'indirizzo mittente su Resend.",
+    "test_recipient_only": "Resend è in modalità di prova: per inviare ai clienti serve un dominio verificato.",
+    "permission_denied": "Invio email non autorizzato: controlla i permessi del servizio email.",
+    "recipient_rejected": "Il servizio email ha rifiutato l'indirizzo del destinatario.",
+    "sender_rejected": "Il servizio email ha rifiutato l'indirizzo mittente.",
+    "rate_limited": "Limite di invio email raggiunto. Riprova più tardi.",
+    "provider_unavailable": "Servizio email temporaneamente non disponibile.",
+    "send_failed": "Invio email non riuscito: controlla la configurazione del servizio.",
+}
+
+
+def esito_invio_email(provider, error_code=None):
+    """Restituisce solo codici e messaggi controllati, senza risposte o segreti del provider."""
+    if error_code:
+        app.logger.warning("Invio email fallito provider=%s code=%s", provider, error_code)
+    return {
+        "success": error_code is None,
+        "provider": provider,
+        "error_code": error_code,
+        "message": EMAIL_ERROR_MESSAGES.get(error_code) if error_code else None,
+    }
+
+
+def invia_email_dettagliata(destinatario, oggetto, corpo, allegati=None):
+    """Usa il provider esplicito; senza EMAIL_PROVIDER conserva la selezione precedente.
+
+    Non effettua fallback o reinvii automatici: dopo un timeout l'accettazione
+    del messaggio potrebbe essere avvenuta, quindi un secondo invio può duplicarlo.
+    """
     # EMAIL_USER / EMAIL_PASS sono mantenute per compatibilita' con la configurazione Render esistente.
     gmail_email = (os.getenv("GMAIL_EMAIL") or os.getenv("EMAIL_USER") or "").strip()
     gmail_app_password = "".join(
         (os.getenv("GMAIL_APP_PASSWORD") or os.getenv("EMAIL_PASS") or "").split()
     )
+    provider = (os.getenv("EMAIL_PROVIDER") or "").strip().lower()
+    if provider and provider not in {"gmail", "resend"}:
+        return esito_invio_email("invalid", "invalid_provider")
+    if not provider:
+        provider = "gmail" if gmail_email and gmail_app_password else "resend"
 
-    if gmail_email and gmail_app_password:
+    if provider == "gmail":
+        if not gmail_email or not gmail_app_password:
+            return esito_invio_email(provider, "missing_configuration")
         try:
             messaggio = EmailMessage()
             messaggio["From"] = formataddr((os.getenv("GMAIL_FROM_NAME", "Gestionale"), gmail_email))
@@ -429,15 +504,28 @@ def invia_email(destinatario, oggetto, corpo, allegati=None):
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=10) as smtp:
                 smtp.login(gmail_email, gmail_app_password)
                 smtp.send_message(messaggio)
-            return True
+            return esito_invio_email(provider)
+        except smtplib.SMTPAuthenticationError:
+            return esito_invio_email(provider, "authentication_failed")
+        except smtplib.SMTPRecipientsRefused:
+            return esito_invio_email(provider, "recipient_rejected")
+        except smtplib.SMTPSenderRefused:
+            return esito_invio_email(provider, "sender_rejected")
+        except ssl.SSLError:
+            return esito_invio_email(provider, "tls_failed")
+        except TimeoutError:
+            return esito_invio_email(provider, "timeout")
+        except smtplib.SMTPException:
+            return esito_invio_email(provider, "send_failed")
+        except OSError as error:
+            code = "network_unreachable" if error.errno in {101, 113} else "connection_failed"
+            return esito_invio_email(provider, code)
         except Exception:
-            app.logger.exception("Errore invio email Gmail")
-            return False
+            return esito_invio_email(provider, "send_failed")
 
     resend_api_key = (os.getenv("RESEND_API_KEY") or "").strip()
     if not resend_api_key:
-        app.logger.warning("Nessun provider email configurato")
-        return False
+        return esito_invio_email(provider, "missing_configuration")
 
     try:
         payload = {
@@ -465,16 +553,41 @@ def invia_email(destinatario, oggetto, corpo, allegati=None):
             timeout=10
         )
         if response.status_code in [200, 201]:
-            return True
+            return esito_invio_email(provider)
 
-        app.logger.warning(
-            "Errore Resend invio email status=%s",
-            response.status_code
-        )
+        # Il testo esterno serve solo alla classificazione: non viene esposto o registrato.
+        try:
+            errore = response.json()
+        except ValueError:
+            errore = {}
+        if not isinstance(errore, dict):
+            errore = {}
+        nome_errore = str(errore.get("name", "")).lower()
+        messaggio_errore = str(errore.get("message", "")).lower()
+        code = "send_failed"
+        if (response.status_code == 401
+                or nome_errore in {"invalid_api_key", "missing_api_key", "restricted_api_key", "suspended_api_key"}
+                or (response.status_code == 400 and "api key is invalid" in messaggio_errore)):
+            code = "authentication_failed"
+        elif response.status_code in {400, 403, 422} and "only send testing emails" in messaggio_errore:
+            code = "test_recipient_only"
+        elif response.status_code in {400, 403, 422} and "domain" in messaggio_errore and "verif" in messaggio_errore:
+            code = "sender_not_verified"
+        elif response.status_code == 403:
+            code = "permission_denied"
+        elif response.status_code == 429:
+            code = "rate_limited"
+        elif response.status_code >= 500:
+            code = "provider_unavailable"
+        return esito_invio_email(provider, code)
+    except requests.exceptions.Timeout:
+        return esito_invio_email(provider, "timeout")
+    except requests.exceptions.SSLError:
+        return esito_invio_email(provider, "tls_failed")
+    except requests.exceptions.ConnectionError:
+        return esito_invio_email(provider, "connection_failed")
     except Exception:
-        app.logger.exception("Errore invio email Resend")
-
-    return False
+        return esito_invio_email(provider, "send_failed")
 
 
 @app.before_request
@@ -1996,10 +2109,11 @@ MASSOTERAPIA & PT
 Christian Di Tommaso
 """
 
-    if invia_email(cliente["email"], f"Promemoria Appuntamento – {servizio_nome}", corpo):
+    esito = invia_email_dettagliata(cliente["email"], f"Promemoria Appuntamento – {servizio_nome}", corpo)
+    if esito["success"]:
         return jsonify({"status": "success"})
 
-    return jsonify({"status": "error", "message": "Errore invio email"}), 500
+    return jsonify({"status": "error", "message": esito["message"], "error_code": esito["error_code"]}), 500
 
 
 # ===============================

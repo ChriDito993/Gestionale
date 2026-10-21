@@ -15,10 +15,7 @@
 </head>
 
 
-<body>
-
-<!-- Logout minimal floating -->
-<a href="/logout" class="logout-mini-btn">Logout</a>
+<body class="gestionale-dashboard">
 
 <div class="app-container">
 
@@ -29,65 +26,83 @@
                 <img src="{{ static_file('logo.png') }}" alt="Logo" class="app-logo">
             </div>
             <div class="title-container">
-                <h1>MASSOTERAPIA & PT di Christian Di Tommaso</h1>
-                <span class="subtitle">Gestionale Appuntamenti</span>
+                <h1>Massoterapia &amp; PT</h1>
+                <span class="subtitle">Christian Di Tommaso <span aria-hidden="true">·</span> Gestionale appuntamenti</span>
             </div>
         </div>
 
-        <div class="header-right">
-            <a href="/clienti" class="btn-primary">
-                Archivio Clienti
+        <nav class="header-right" aria-label="Navigazione gestionale">
+            <a href="/clienti" class="btn-primary header-nav-link">
+                Archivio clienti
             </a>
 
-            <a href="/pagamenti" class="btn-primary">
+            <a href="/pagamenti" class="btn-primary header-nav-link">
                 Pagamenti
             </a>
 
-            <button class="btn-primary" onclick="apriModalCliente()">
-                + Nuovo Cliente
+            <button type="button" class="btn-primary header-new-client" onclick="apriModalCliente()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
+                Nuovo cliente
             </button>
-        </div>
+            <a href="/logout" class="header-logout" aria-label="Esci dal gestionale" title="Esci dal gestionale">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M14 8l4 4-4 4M8 12h10"/>
+                </svg>
+                <span class="header-logout-label">Esci</span>
+            </a>
+        </nav>
 
     </header>
 
     <!-- DASHBOARD MINI -->
-    <div class="dashboard-mini">
-        <div class="dashboard-card dashboard-card-interactive" id="openPacchettiAttivi">
-            <div class="dashboard-card-head">
-                <span class="dashboard-label">Pacchetti Attivi</span>
-            </div>
+    <section class="dashboard-mini" aria-label="Riepilogo attività">
+        <button type="button" class="dashboard-card dashboard-card-interactive" id="openPacchettiAttivi">
+            <span class="dashboard-card-head">
+                <span class="dashboard-label">Pacchetti attivi</span>
+                <svg class="dashboard-open-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M7 17 17 7M7 7h10v10"/>
+                </svg>
+            </span>
             <span class="dashboard-value">{{ dashboard_pacchetti }}</span>
             <span class="dashboard-meta">Attivi in questo momento</span>
-        </div>
+        </button>
 
         <div class="dashboard-card">
             <div class="dashboard-card-head">
-                <span class="dashboard-label">Clienti Totali</span>
+                <span class="dashboard-label">Clienti totali</span>
             </div>
             <span class="dashboard-value">{{ dashboard_clienti }}</span>
             <span class="dashboard-meta">Archivio anagrafico</span>
         </div>
 
-        <div class="dashboard-card dashboard-card-interactive" id="openAppuntamentiOggi">
-            <div class="dashboard-card-head">
-                <span class="dashboard-label">Appuntamenti Oggi</span>
-            </div>
+        <button type="button" class="dashboard-card dashboard-card-interactive" id="openAppuntamentiOggi">
+            <span class="dashboard-card-head">
+                <span class="dashboard-label">Appuntamenti oggi</span>
+                <svg class="dashboard-open-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M7 17 17 7M7 7h10v10"/>
+                </svg>
+            </span>
             <span class="dashboard-value" id="dayCount">0</span>
             <span id="dayLabel" class="dashboard-meta dashboard-meta-uppercase">
                 Oggi
             </span>
-        </div>
+        </button>
 
-        <div class="dashboard-card dashboard-card-interactive" id="openAppuntamentiSettimana">
-            <div class="dashboard-card-head">
-                <span class="dashboard-label">Appuntamenti Settimana</span>
-            </div>
+        <button type="button" class="dashboard-card dashboard-card-interactive" id="openAppuntamentiSettimana">
+            <span class="dashboard-card-head">
+                <span class="dashboard-label">Appuntamenti settimana</span>
+                <svg class="dashboard-open-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M7 17 17 7M7 7h10v10"/>
+                </svg>
+            </span>
             <span class="dashboard-value" id="weekCount">0</span>
             <span id="weekRangeLabel" class="dashboard-meta dashboard-meta-uppercase">
                 Settimana corrente
             </span>
-        </div>
-    </div>
+        </button>
+    </section>
 
     <!-- FILTRI RAPIDI CALENDARIO -->
     <div class="calendar-filters-card">
@@ -168,15 +183,35 @@
 
 
 <!-- MODALE -->
-    <div id="eventoModal" class="modal">
-    <div class="modal-content modal-card-premium modal-shell">
-        <span class="close" onclick="chiudiModal()">✖</span>
-        <h3 class="modal-title-premium modal-title-bar-premium">Nuovo Appuntamento</h3>
+<div id="eventoModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="eventoModalTitle">
+    <div class="modal-content modal-card-premium modal-shell event-create-card">
+        <div class="event-create-header">
+            <div>
+                <h3 id="eventoModalTitle">Nuovo appuntamento</h3>
+                <p>Organizza la seduta e scegli come confermarla.</p>
+            </div>
+            <button type="button" class="event-close-btn" onclick="chiudiModal()" aria-label="Chiudi nuovo appuntamento">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                    <path d="m6 6 12 12M6 18 18 6"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="event-create-body">
+        <div class="section event-occupato-section">
+            <label class="event-occupato-toggle" for="eventoOccupato">
+                <input type="checkbox" id="eventoOccupato" aria-describedby="eventoOccupatoHint">
+                <span>Blocca un orario personale</span>
+            </label>
+            <p class="event-occupato-help" id="eventoOccupatoHint">Senza cliente, indicato in rosso come “Occupato”.</p>
+        </div>
 
         <div id="eventoClienteSection" class="section">
-            <label>Cliente</label>
-            <input type="text" id="searchCliente" class="input-apple" placeholder="Scrivi nome o cognome..." autocomplete="off">
+            <label for="searchCliente">Chi partecipa</label>
+            <input type="text" id="searchCliente" class="input-apple" placeholder="Cerca un cliente per nome o cognome" autocomplete="off" aria-describedby="eventoClienteHint">
             <div id="risultatiClienti" class="dropdown-risultati"></div>
+            <div id="clientiSelezionati" class="clienti-selezionati"></div>
+            <p class="event-field-hint" id="eventoClienteHint">Per una seduta di coppia, seleziona entrambe le persone.</p>
             <div id="quickClienteCreateBox" class="quick-cliente-create quick-create-hidden">
                 <div id="quickClienteHint" class="quick-cliente-hint">
                     Cliente non trovato. Salvalo al volo.
@@ -196,62 +231,91 @@
                     Salva cliente e seleziona
                 </button>
             </div>
-            <div id="clientiSelezionati" class="clienti-selezionati"></div>
         </div>
 
+        <div class="event-service-grid">
         <div class="section">
-            <label>Servizio</label>
+            <label for="servizioSelect">Servizio</label>
             <select id="servizioSelect" class="input-apple"></select>
         </div>
 
-        <div class="section">
-            <label>Data e Orario</label>
+        <div id="eventoPacchettoSection" class="section">
+            <label for="pacchettoSelect">Pacchetto <span class="field-optional">facoltativo</span></label>
+            <select id="pacchettoSelect" class="input-apple">
+                <option value="">Nessun pacchetto</option>
+            </select>
+            <div id="quickPacchettoAssignBox" class="quick-pacchetto-assign quick-create-hidden">
+                <p class="event-package-title">Assegna un nuovo pacchetto</p>
+                <div class="event-package-content">
+                    <div id="quickPacchettoHint" class="quick-pacchetto-hint">
+                        Seleziona un cliente per assegnare un pacchetto direttamente da qui.
+                    </div>
+                    <label for="quickTipoPacchettoSelect">Tipo di pacchetto</label>
+                    <select id="quickTipoPacchettoSelect" class="input-apple">
+                        <option value="">Seleziona pacchetto da assegnare</option>
+                    </select>
+                    <button type="button" id="btnQuickAssegnaPacchetto" class="btn-apple-ghost quick-pacchetto-btn">
+                        Assegna pacchetto ora
+                    </button>
+                </div>
+            </div>
+        </div>
+        </div>
+
+        <div class="section event-when-section">
+            <div class="event-section-heading">
+                <span>Quando</span>
+                <span id="eventoDurata" class="event-duration">Durata da definire</span>
+            </div>
             <div class="event-schedule-grid">
                 <div class="schedule-field">
+                    <label for="eventoData">Data</label>
                     <input type="date" id="eventoData" class="input-apple" required>
                 </div>
                 <div class="schedule-field">
+                    <label for="eventoOraInizio">Dalle</label>
                     <input type="time" id="eventoOraInizio" class="input-apple" step="900" required>
                 </div>
                 <div class="schedule-field">
+                    <label for="eventoOraFine">Alle</label>
                     <input type="time" id="eventoOraFine" class="input-apple" step="900" required>
                 </div>
             </div>
         </div>
 
-        <div class="section event-occupato-section">
-            <label class="event-occupato-toggle">
-                <input type="checkbox" id="eventoOccupato">
-                <span>Occupa questo slot</span>
-            </label>
-            <p class="event-occupato-help">Crea un blocco senza cliente, visualizzato in rosso come “Occupato”.</p>
-        </div>
-
         <div id="eventoEmailConfermaSection" class="section event-email-section">
-            <label class="event-email-toggle">
-                <input type="checkbox" id="eventoInviaConfermaEmail">
-                <span>Invia email di conferma</span>
+            <label class="event-email-toggle" for="eventoInviaConfermaEmail">
+                <input type="checkbox" id="eventoInviaConfermaEmail" aria-describedby="eventoEmailHint">
+                <span>
+                    <span class="event-option-title">Invia email di conferma</span>
+                    <span class="event-email-help" id="eventoEmailHint">Include il file per aggiungere la seduta al calendario.</span>
+                </span>
             </label>
-            <p class="event-email-help">La conferma viene inviata solo ai clienti selezionati che hanno un indirizzo email.</p>
         </div>
 
+        <details id="eventoOpzioniAggiuntive" class="event-extra-options">
+            <summary>
+                <span>Altre opzioni<span class="event-extra-description">Note, ripetizioni e altre date</span></span>
+                <span id="eventoOpzioniAttive" class="event-extra-badge" hidden></span>
+            </summary>
+            <div class="event-extra-content">
         <div class="section">
             <label for="eventoNote">Note appuntamento <span class="field-optional">(opzionali)</span></label>
             <textarea id="eventoNote"
                       class="input-apple event-notes-input"
-                      rows="3"
+                      rows="2"
                       maxlength="2000"
-                      placeholder="Inserisci eventuali note per questo appuntamento..."></textarea>
+                      placeholder="Aggiungi un'indicazione utile per la seduta..."></textarea>
         </div>
 
         <div class="section">
-            <label>Serie Settimanale (opzionale)</label>
             <div class="event-recurrence-grid">
-                <label class="event-recurrence-toggle">
+                <label class="event-recurrence-toggle" for="eventoRipetiSettimanale">
                     <input type="checkbox" id="eventoRipetiSettimanale">
                     <span>Ripeti ogni settimana</span>
                 </label>
                 <div class="event-recurrence-count">
+                    <label for="eventoNumeroOccorrenze">Totale appuntamenti</label>
                     <input type="number"
                            id="eventoNumeroOccorrenze"
                            class="input-apple"
@@ -260,46 +324,35 @@
                            step="1"
                            value="2"
                            disabled>
-                    <span class="event-recurrence-help">Totale appuntamenti</span>
                 </div>
             </div>
         </div>
 
         <div class="section">
-            <label>Pianificazione Smart (opzionale)</label>
+            <label>Altre date e orari</label>
             <div class="event-custom-slots">
                 <div class="event-custom-slots-hint">
-                    Aggiungi più date/orari diversi nello stesso salvataggio.
+                    Aggiungi appuntamenti con date o orari diversi. In alternativa, usa la ripetizione settimanale.
                 </div>
                 <div id="eventoSlotPersonalizzatiList" class="event-custom-slot-list"></div>
                 <button type="button"
                         id="btnAggiungiSlotPersonalizzato"
                         class="btn-apple-ghost event-custom-slot-add">
-                    + Aggiungi data/orario
+                    + Aggiungi un'altra data
                 </button>
             </div>
         </div>
 
-        <div id="eventoPacchettoSection" class="section">
-            <label>Pacchetto (opzionale)</label>
-            <select id="pacchettoSelect" class="input-apple">
-                <option value="">Nessun pacchetto</option>
-            </select>
-            <div id="quickPacchettoAssignBox" class="quick-pacchetto-assign quick-create-hidden">
-                <div id="quickPacchettoHint" class="quick-pacchetto-hint">
-                    Seleziona un cliente per assegnare un pacchetto direttamente da qui.
-                </div>
-                <select id="quickTipoPacchettoSelect" class="input-apple">
-                    <option value="">Seleziona pacchetto da assegnare</option>
-                </select>
-                <button type="button" id="btnQuickAssegnaPacchetto" class="btn-apple-ghost quick-pacchetto-btn">
-                    Assegna pacchetto ora
-                </button>
             </div>
+        </details>
         </div>
 
-        <div class="modal-footer">
-            <button id="btnSalvaEvento" class="btn-apple-primary" onclick="salvaEvento()">Salva Appuntamento</button>
+        <div class="modal-footer event-create-footer">
+            <div class="event-save-summary" aria-live="polite" aria-atomic="true">
+                <span id="eventoRiepilogo">1 appuntamento</span>
+                <span id="eventoRiepilogoEmail">Conferma email non richiesta</span>
+            </div>
+            <button type="button" id="btnSalvaEvento" class="btn-apple-primary" onclick="salvaEvento()">Salva appuntamento</button>
         </div>
     </div>
 </div>
@@ -342,31 +395,57 @@
                   placeholder="Inserisci eventuali note per questo appuntamento..."></textarea>
 
         <div class="modal-footer modal-footer-vertical">
-            <button type="button"
-                    class="btn-promemoria"
-                    id="btnPromemoriaMain"
-                    onclick="togglePromemoriaOptions()">
-                Invia Promemoria
-            </button>
-
-            <div class="promemoria-split promemoria-hidden" id="promemoriaOptions">
-                <button type="button" class="btn-promemoria-round btn-whatsapp"
-                        onclick="inviaPromemoriaWhatsApp()" title="Invia WhatsApp">
-                    <svg viewBox="0 0 32 32" width="26" height="26">
-                        <path fill="white"
-                              d="M19.11 17.29c-.28-.14-1.66-.82-1.92-.91-.26-.1-.45-.14-.64.14-.19.28-.73.91-.89 1.1-.16.19-.33.21-.61.07-.28-.14-1.2-.44-2.29-1.39-.85-.76-1.42-1.69-1.59-1.97-.16-.28-.02-.43.12-.57.13-.13.28-.33.42-.49.14-.16.19-.28.28-.47.09-.19.05-.35-.02-.49-.07-.14-.64-1.54-.88-2.11-.23-.56-.47-.49-.64-.5l-.54-.01c-.19 0-.49.07-.75.35-.26.28-1 1-1 2.43 0 1.43 1.03 2.81 1.17 3 .14.19 2.03 3.1 4.92 4.35.69.3 1.23.48 1.65.62.69.22 1.31.19 1.8.12.55-.08 1.66-.68 1.89-1.34.23-.66.23-1.22.16-1.34-.07-.12-.26-.19-.54-.33z"/>
+            <div class="promemoria-tools">
+                <button type="button"
+                        class="btn-promemoria"
+                        id="btnPromemoriaMain"
+                        aria-expanded="false"
+                        aria-controls="promemoriaOptions"
+                        onclick="togglePromemoriaOptions()">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
+                        <path d="M10 21h4"/>
+                    </svg>
+                    <span class="promemoria-label">Invia promemoria</span>
+                    <svg class="promemoria-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none"
+                         stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="m6 9 6 6 6-6"/>
                     </svg>
                 </button>
 
-                <button type="button" class="btn-promemoria-round btn-mail"
-                        onclick="inviaPromemoriaMail()" title="Invia Email">
-                    ✉️
-                </button>
+                <div class="promemoria-split promemoria-hidden" id="promemoriaOptions"
+                     role="group" aria-label="Canale del promemoria" hidden>
+                    <button type="button" class="btn-promemoria-channel btn-whatsapp"
+                            onclick="inviaPromemoriaWhatsApp()" title="Invia promemoria con WhatsApp">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M21 11.5a9 9 0 0 1-13.4 7.9L3 21l1.6-4.6A9 9 0 1 1 21 11.5Z"/>
+                            <path d="m8 7 2 3-1 1a7 7 0 0 0 4 4l1-1 3 2c-1 2-3 2-6 0s-5-6-3-9Z"/>
+                        </svg>
+                        <span>WhatsApp</span>
+                    </button>
 
-                <button type="button" class="btn-promemoria-round btn-sms"
-                        onclick="inviaPromemoriaSMS()" title="Invia SMS">
-                    📩
-                </button>
+                    <button type="button" class="btn-promemoria-channel btn-mail"
+                            onclick="inviaPromemoriaMail()" title="Invia promemoria via email">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="3" y="5" width="18" height="14" rx="3"/>
+                            <path d="m3 7 9 6 9-6"/>
+                        </svg>
+                        <span>Email</span>
+                    </button>
+
+                    <button type="button" class="btn-promemoria-channel btn-sms"
+                            onclick="inviaPromemoriaSMS()" title="Invia promemoria via SMS">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M21 14a3 3 0 0 1-3 3H8l-5 4V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3Z"/>
+                            <path d="M7 8h10M7 12h6"/>
+                        </svg>
+                        <span>SMS</span>
+                    </button>
+                </div>
             </div>
             <button type="button" id="btnSalvaModifiche" class="btn-apple-primary" onclick="salvaModifiche()">Salva Modifiche</button>
             <button type="button" id="btnEliminaEvento" class="btn-apple-ghost btn-danger" onclick="eliminaEvento()">Elimina Appuntamento</button>

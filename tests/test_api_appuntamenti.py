@@ -300,6 +300,7 @@ def test_post_appuntamenti_does_not_send_confirmation_without_opt_in(authed_clie
 
 
 def test_invia_email_uses_gmail_smtp_when_configured(monkeypatch):
+    monkeypatch.delenv("EMAIL_PROVIDER", raising=False)
     class FakeSmtp:
         instances = []
 
@@ -366,9 +367,202 @@ def test_genera_file_calendario_is_valid_and_uses_rome_timezone():
     assert contenuto.endswith("END:VEVENT\r\nEND:VCALENDAR\r\n")
 
 
+@pytest.fixture
+def email_config(monkeypatch):
+    for nome in ("EMAIL_PROVIDER", "GMAIL_EMAIL", "GMAIL_APP_PASSWORD", "EMAIL_USER", "EMAIL_PASS",
+                 "RESEND_API_KEY", "RESEND_FROM_EMAIL"):
+        monkeypatch.delenv(nome, raising=False)
+
+    def connessione_non_prevista(*args, **kwargs):
+        pytest.fail("Tentativo di connessione email non simulata")
+
+    monkeypatch.setattr(app_module.smtplib, "SMTP_SSL", connessione_non_prevista)
+    monkeypatch.setattr(app_module.requests, "post", connessione_non_prevista)
+
+
+@pytest.mark.parametrize("nome,numero,atteso", [
+    ("Mario Rossi", 3, "Mario-Rossi-seduta-3.ics"),
+    ("Mario Rossi", None, "Mario-Rossi.ics"),
+    ("José D'Angelo", 2, "Jose-DAngelo-seduta-2.ics"),
+    ("../Mario / Rossi\r\n", 3, "Mario-Rossi-seduta-3.ics"),
+    ("", None, "Appuntamento.ics"),
+])
+def test_calendar_filename_is_personal_and_safe(nome, numero, atteso):
+    assert app_module.nome_file_calendario(nome, numero) == atteso
+
+
+def test_personal_calendar_title_preserves_utf8_and_folding():
+    nome = "José " + "D'Angelo " * 15
+    calendario = app_module.genera_file_calendario({
+        "id": "42", "start_datetime": "2026-11-11T10:00:00", "end_datetime": "2026-11-11T11:00:00",
+    }, "Massoterapia, relax", "Seduta: 3 di 10", nome_cliente=nome).decode("utf-8")
+    assert f"SUMMARY:{nome.strip()} – Massoterapia\\, relax – Seduta 3 di 10\r\n" in calendario.replace("\r\n ", "")
+    assert all(len(linea.encode("utf-8")) <= 75 for linea in calendario.split("\r\n"))
+
+
+def test_explicit_resend_ignores_gmail_and_preserves_ics(email_config, monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "resend")
+    monkeypatch.setenv("EMAIL_USER", "studio@example.com")
+    monkeypatch.setenv("EMAIL_PASS", "test-password")
+    monkeypatch.setenv("RESEND_API_KEY", "test-api-key")
+    monkeypatch.setenv("RESEND_FROM_EMAIL", "Studio <studio@example.com>")
+    richieste = []
+
+    def post(url, **kwargs):
+        richieste.append((url, kwargs))
+        return type("Response", (), {"status_code": 200})()
+
+    monkeypatch.setattr(app_module.requests, "post", post)
+    calendario = b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
+    assert app_module.invia_email("cliente@example.com", "Conferma", "Testo", [
+        ("appuntamento.ics", calendario, "text", "calendar")
+    ]) is True
+    assert len(richieste) == 1
+    url, richiesta = richieste[0]
+    assert url == "https://api.resend.com/emails"
+    assert richiesta["json"]["from"] == "Studio <studio@example.com>"
+    allegato = richiesta["json"]["attachments"][0]
+    assert allegato["filename"] == "appuntamento.ics"
+    assert app_module.base64.b64decode(allegato["content"]) == calendario
+
+
+@pytest.mark.parametrize("provider,expected", [
+    ("other", "invalid_provider"), ("gmail", "missing_configuration"),
+    ("resend", "missing_configuration"),
+])
+def test_email_configuration_errors_do_not_connect(email_config, monkeypatch, provider, expected, caplog):
+    monkeypatch.setenv("EMAIL_PROVIDER", provider)
+    # Anche con l'altro provider configurato non deve esserci fallback.
+    if provider == "gmail":
+        monkeypatch.setenv("RESEND_API_KEY", "secret-test-api-key")
+    else:
+        monkeypatch.setenv("EMAIL_USER", "studio@example.com")
+        monkeypatch.setenv("EMAIL_PASS", "secret-test-password")
+    esito = app_module.invia_email_dettagliata("cliente@example.com", "Conferma", "Testo")
+    assert esito["success"] is False
+    assert esito["error_code"] == expected
+    assert "secret-test" not in caplog.text
+
+
+@pytest.mark.parametrize("errore,expected", [
+    (OSError(101, "secret-test-network"), "network_unreachable"),
+    (app_module.smtplib.SMTPAuthenticationError(535, b"secret-test-password"), "authentication_failed"),
+    (TimeoutError("secret-test-timeout"), "timeout"),
+])
+def test_gmail_failure_is_safe_and_does_not_fallback(email_config, monkeypatch, errore, expected, caplog):
+    monkeypatch.setenv("EMAIL_PROVIDER", "gmail")
+    monkeypatch.setenv("EMAIL_USER", "studio@example.com")
+    monkeypatch.setenv("EMAIL_PASS", "secret-test-password")
+    monkeypatch.setenv("RESEND_API_KEY", "secret-test-api-key")
+
+    def smtp(*args, **kwargs):
+        raise errore
+
+    monkeypatch.setattr(app_module.smtplib, "SMTP_SSL", smtp)
+    esito = app_module.invia_email_dettagliata("cliente@example.com", "Conferma", "Testo")
+    assert esito["success"] is False
+    assert esito["error_code"] == expected
+    assert esito["provider"] == "gmail"
+    assert "secret-test" not in str(esito) + caplog.text
+
+
+@pytest.mark.parametrize("status,body,expected", [
+    (401, {"name": "validation_error", "message": "secret-test-key"}, "authentication_failed"),
+    (400, {"message": "API key is invalid"}, "authentication_failed"),
+    (403, {"message": "You can only send testing emails to your own email address (secret-test@example.com)"}, "test_recipient_only"),
+    (403, {"message": "The secret-test.example.com domain is not verified"}, "sender_not_verified"),
+    (403, {"message": "secret-test-permissions"}, "permission_denied"),
+    (429, {}, "rate_limited"),
+    (503, {}, "provider_unavailable"),
+    (400, {}, "send_failed"),
+])
+def test_resend_errors_are_classified_without_exposing_response(email_config, monkeypatch, status, body, expected, caplog):
+    monkeypatch.setenv("EMAIL_PROVIDER", "resend")
+    monkeypatch.setenv("RESEND_API_KEY", "secret-test-key")
+
+    class Response:
+        status_code = status
+
+        def json(self):
+            return body
+
+    monkeypatch.setattr(app_module.requests, "post", lambda *args, **kwargs: Response())
+    esito = app_module.invia_email_dettagliata("cliente@example.com", "Conferma", "Testo")
+    assert esito["success"] is False
+    assert esito["error_code"] == expected
+    assert "secret-test" not in str(esito) + caplog.text
+
+
+def test_email_network_failure_keeps_created_appointment(authed_client, email_config, monkeypatch):
+    client, fake_supabase = authed_client
+    fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "email": "mario@example.com"}
+    fake_supabase.servizi["10"] = {"id": "10", "nome": "Massoterapia"}
+    monkeypatch.setenv("EMAIL_PROVIDER", "gmail")
+    monkeypatch.setenv("EMAIL_USER", "studio@example.com")
+    monkeypatch.setenv("EMAIL_PASS", "test-password")
+
+    def smtp(*args, **kwargs):
+        raise OSError(101, "Network is unreachable")
+
+    monkeypatch.setattr(app_module.smtplib, "SMTP_SSL", smtp)
+    response = client.post("/api/appuntamenti", json={
+        "servizio_id": 10, "clienti_ids": [101], "invia_conferma_email": True,
+        "start_datetime": "2026-11-11T10:00:00", "end_datetime": "2026-11-11T11:00:00",
+    })
+    assert response.status_code == 200
+    assert response.get_json()["success"] is True
+    assert len(fake_supabase.appuntamenti) == 1
+    esito = response.get_json()["email_confirmation"]
+    assert esito["sent_count"] == 0
+    assert esito["failed_count"] == 1
+    assert esito["errors"][0]["code"] == "network_unreachable"
+
+
+def test_couple_partial_failure_keeps_both_clients_and_reports_reason(authed_client, monkeypatch):
+    client, fake_supabase = authed_client
+    fake_supabase.clienti.update({
+        "101": {"id": "101", "nome": "Mario", "email": "mario@example.com"},
+        "202": {"id": "202", "nome": "Anna", "email": "anna@example.com"},
+    })
+    fake_supabase.servizi["20"] = {"id": "20", "nome": "Ginnastica di coppia"}
+    risultati = iter([
+        {"success": True},
+        {"success": False, "error_code": "recipient_rejected", "message": "Destinatario rifiutato"},
+    ])
+    monkeypatch.setattr(app_module, "invia_email_dettagliata", lambda *args, **kwargs: next(risultati))
+    response = client.post("/api/appuntamenti", json={
+        "servizio_id": 20, "clienti_ids": [101, 202], "invia_conferma_email": True,
+        "start_datetime": "2026-11-11T10:00:00", "end_datetime": "2026-11-11T11:00:00",
+    })
+    assert response.status_code == 200
+    assert len(fake_supabase.appuntamenti) == 1
+    assert len(fake_supabase.appuntamenti_clienti) == 2
+    esito = response.get_json()["email_confirmation"]
+    assert esito["attempted_count"] == 2
+    assert esito["sent_count"] == 1
+    assert esito["failed_count"] == 1
+    assert esito["errors"] == [{"code": "recipient_rejected", "message": "Destinatario rifiutato"}]
+
+
+def test_manual_reminder_returns_safe_email_error(authed_client, monkeypatch):
+    client, fake_supabase = authed_client
+    fake_supabase.appuntamenti["1"] = {
+        "id": "1", "start_datetime": "2026-11-11T10:00:00", "servizi": {"nome": "Massoterapia"},
+        "appuntamenti_clienti": [{"clienti": {"nome": "Mario", "email": "mario@example.com"}}],
+    }
+    monkeypatch.setattr(app_module, "invia_email_dettagliata", lambda *args, **kwargs: {
+        "success": False, "error_code": "authentication_failed", "message": "Autenticazione non riuscita",
+    })
+    response = client.get("/invia_promemoria/1")
+    assert response.status_code == 500
+    assert response.get_json() == {
+        "status": "error", "error_code": "authentication_failed", "message": "Autenticazione non riuscita",
+    }
+
+
 def test_confirmation_email_includes_package_session_and_ics(authed_client, monkeypatch):
     _client, fake_supabase = authed_client
-    fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "email": "mario@example.com"}
+    fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "cognome": "Rossi", "email": "mario@example.com"}
     fake_supabase.servizi["10"] = {"id": "10", "nome": "Massoterapia"}
     fake_supabase.pacchetti_cliente["500"] = {
         "id": "500",
@@ -378,10 +572,10 @@ def test_confirmation_email_includes_package_session_and_ics(authed_client, monk
     email_inviate = []
     monkeypatch.setattr(
         app_module,
-        "invia_email",
+        "invia_email_dettagliata",
         lambda destinatario, oggetto, corpo, allegati=None: email_inviate.append(
             (destinatario, oggetto, corpo, allegati)
-        ) or True,
+        ) or {"success": True},
     )
 
     esito = app_module.invia_conferme_appuntamento(
@@ -402,7 +596,10 @@ def test_confirmation_email_includes_package_session_and_ics(authed_client, monk
     assert oggetto == "Conferma appuntamento – Massoterapia & PT"
     assert "Seduta: 3 di 10" in corpo
     assert "Luogo: Via Michele Lessona 9, Milano" in corpo
-    assert allegati[0][0] == "appuntamento-42.ics"
+    assert allegati[0][0] == "Mario-Rossi-seduta-3.ics"
+    calendario = allegati[0][1].decode("utf-8").replace("\r\n ", "")
+    assert "SUMMARY:Mario Rossi – Massoterapia – Seduta 3 di 10\r\n" in calendario
+    assert "UID:appuntamento-42@" in calendario
     assert b"DTSTART;TZID=Europe/Rome:20260311T100000" in allegati[0][1]
     assert esito["sent_count"] == 1
     assert esito["failed_count"] == 0
@@ -410,8 +607,8 @@ def test_confirmation_email_includes_package_session_and_ics(authed_client, monk
 
 def test_couple_appointment_sends_email_and_session_to_both_clients(authed_client, monkeypatch):
     _client, fake_supabase = authed_client
-    fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "email": "mario@example.com"}
-    fake_supabase.clienti["202"] = {"id": "202", "nome": "Anna", "email": "anna@example.com"}
+    fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "cognome": "Rossi", "email": "mario@example.com"}
+    fake_supabase.clienti["202"] = {"id": "202", "nome": "Anna", "cognome": "Bianchi", "email": "anna@example.com"}
     fake_supabase.servizi["20"] = {"id": "20", "nome": "Ginnastica posturale di coppia"}
     fake_supabase.pacchetti_cliente["500"] = {
         "id": "500",
@@ -421,10 +618,10 @@ def test_couple_appointment_sends_email_and_session_to_both_clients(authed_clien
     email_inviate = []
     monkeypatch.setattr(
         app_module,
-        "invia_email",
+        "invia_email_dettagliata",
         lambda destinatario, oggetto, corpo, allegati=None: email_inviate.append(
             (destinatario, oggetto, corpo, allegati)
-        ) or True,
+        ) or {"success": True},
     )
 
     esito = app_module.invia_conferme_appuntamento(
@@ -442,7 +639,14 @@ def test_couple_appointment_sends_email_and_session_to_both_clients(authed_clien
     assert {email[0] for email in email_inviate} == {"mario@example.com", "anna@example.com"}
     assert all(email[1] == "Conferma appuntamento – Massoterapia & PT" for email in email_inviate)
     assert all("Seduta: 3 di 10" in email[2] for email in email_inviate)
-    assert all(email[3][0][0] == "appuntamento-44.ics" for email in email_inviate)
+    for email, nome, altro_nome, file_atteso in [
+        (email_inviate[0], "Mario Rossi", "Anna Bianchi", "Mario-Rossi-seduta-3.ics"),
+        (email_inviate[1], "Anna Bianchi", "Mario Rossi", "Anna-Bianchi-seduta-3.ics"),
+    ]:
+        assert email[3][0][0] == file_atteso
+        calendario = email[3][0][1].decode("utf-8").replace("\r\n ", "")
+        assert f"SUMMARY:{nome} – Ginnastica posturale di coppia – Seduta 3 di 10\r\n" in calendario
+        assert altro_nome not in calendario
     assert esito["sent_count"] == 2
 
 
@@ -454,8 +658,10 @@ def test_confirmation_email_omits_session_without_package_or_email(authed_client
     email_inviate = []
     monkeypatch.setattr(
         app_module,
-        "invia_email",
-        lambda destinatario, oggetto, corpo, allegati=None: email_inviate.append(corpo) or False,
+        "invia_email_dettagliata",
+        lambda destinatario, oggetto, corpo, allegati=None: email_inviate.append((corpo, allegati)) or {
+            "success": False, "error_code": "network_unreachable", "message": "Connessione non disponibile",
+        },
     )
 
     esito = app_module.invia_conferme_appuntamento(
@@ -471,9 +677,14 @@ def test_confirmation_email_omits_session_without_package_or_email(authed_client
     )
 
     assert len(email_inviate) == 1
-    assert "Seduta:" not in email_inviate[0]
+    assert "Seduta:" not in email_inviate[0][0]
+    assert email_inviate[0][1][0][0] == "Mario.ics"
+    calendario = email_inviate[0][1][0][1].decode("utf-8").replace("\r\n ", "")
+    assert "SUMMARY:Mario – Massoterapia\r\n" in calendario
+    assert "Seduta" not in calendario
     assert esito["failed_count"] == 1
     assert esito["skipped_no_email_count"] == 1
+    assert esito["errors"][0]["code"] == "network_unreachable"
 
 
 def test_post_appuntamenti_can_occupy_slot_without_cliente(authed_client, monkeypatch):
