@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import datetime, timedelta
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
@@ -23,6 +24,7 @@ class FakeQuery:
         self.filters = []
         self._single = False
         self._limit = None
+        self._range = None
 
     def select(self, _columns):
         self.operation = "select"
@@ -52,6 +54,17 @@ class FakeQuery:
 
     def lt(self, column, value):
         self.filters.append(("lt", column, value))
+        return self
+
+    def gt(self, column, value):
+        self.filters.append(("gt", column, value))
+        return self
+
+    def order(self, _column):
+        return self
+
+    def range(self, first, last):
+        self._range = (first, last)
         return self
 
     def limit(self, value):
@@ -91,7 +104,11 @@ class FakeQuery:
             for operator, column, value in self.filters:
                 row_value = row.get(column)
                 if operator == "eq":
-                    if str(row_value) != str(value):
+                    if column == "email_conferme":
+                        matches = row_value == json.loads(value)
+                    else:
+                        matches = str(row_value) == str(value)
+                    if not matches:
                         include = False
                         break
                 elif operator == "gte":
@@ -102,6 +119,10 @@ class FakeQuery:
                     if row_value is None or str(row_value) >= str(value):
                         include = False
                         break
+                elif operator == "gt":
+                    if row_value is None or str(row_value) <= str(value):
+                        include = False
+                        break
             if include:
                 filtered.append(row)
         return filtered
@@ -109,6 +130,7 @@ class FakeQuery:
     def _exec_appuntamenti(self):
         if self.operation == "insert":
             row = dict(self.payload or {})
+            row.setdefault("email_conferme", {})
             row["id"] = str(self.fake_supabase.next_appuntamento_id)
             self.fake_supabase.next_appuntamento_id += 1
             self.fake_supabase.appuntamenti[row["id"]] = row
@@ -116,6 +138,8 @@ class FakeQuery:
 
         if self.operation == "select":
             rows = self._filter_rows(list(self.fake_supabase.appuntamenti.values()))
+            if self._range is not None:
+                rows = rows[self._range[0]:self._range[1] + 1]
             if self._limit is not None:
                 rows = rows[: self._limit]
             if self._single:
@@ -141,6 +165,8 @@ class FakeQuery:
         return FakeResponse([])
 
     def _exec_appuntamenti_clienti(self):
+        if self.operation == "select":
+            return FakeResponse(self._filter_rows(self.fake_supabase.appuntamenti_clienti))
         if self.operation == "insert":
             row = dict(self.payload or {})
             self.fake_supabase.appuntamenti_clienti.append(row)
@@ -343,6 +369,52 @@ def test_invia_email_uses_gmail_smtp_when_configured(monkeypatch):
     attachment = list(smtp.message.iter_attachments())[0]
     assert attachment.get_filename() == "appuntamento-1.ics"
     assert attachment.get_content().encode("utf-8") == allegato[1]
+
+
+@pytest.mark.parametrize("phase,expected_success,expected_code", [
+    ("send", False, "delivery_unknown"),
+    ("quit", True, None),
+])
+def test_smtp_inflight_timeout_is_uncertain_but_quit_failure_is_not(email_config, monkeypatch, phase, expected_success, expected_code):
+    monkeypatch.setenv("EMAIL_PROVIDER", "gmail")
+    monkeypatch.setenv("EMAIL_USER", "studio@example.com")
+    monkeypatch.setenv("EMAIL_PASS", "test-password")
+
+    class Smtp:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            if phase == "quit":
+                raise OSError("Connection closed after acceptance")
+
+        def login(self, *args):
+            pass
+
+        def send_message(self, *args):
+            if phase == "send":
+                raise TimeoutError("Response lost")
+
+    monkeypatch.setattr(app_module.smtplib, "SMTP_SSL", Smtp)
+    result = app_module.invia_email_dettagliata("cliente@example.com", "Conferma", "Testo")
+    assert result["success"] is expected_success
+    assert result["error_code"] == expected_code
+
+
+def test_resend_lost_connection_is_uncertain(email_config, monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "resend")
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+
+    def send(*args, **kwargs):
+        raise app_module.requests.exceptions.ConnectionError("Response lost")
+
+    monkeypatch.setattr(app_module.requests, "post", send)
+    result = app_module.invia_email_dettagliata("cliente@example.com", "Conferma", "Testo")
+    assert result["success"] is False
+    assert result["error_code"] == "delivery_unknown"
 
 
 def test_genera_file_calendario_is_valid_and_uses_rome_timezone():
@@ -562,6 +634,7 @@ def test_manual_reminder_returns_safe_email_error(authed_client, monkeypatch):
 
 def test_confirmation_email_includes_package_session_and_ics(authed_client, monkeypatch):
     _client, fake_supabase = authed_client
+    fake_supabase.appuntamenti["42"] = {"id": "42", "email_conferme": {}}
     fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "cognome": "Rossi", "email": "mario@example.com"}
     fake_supabase.servizi["10"] = {"id": "10", "nome": "Massoterapia"}
     fake_supabase.pacchetti_cliente["500"] = {
@@ -607,6 +680,7 @@ def test_confirmation_email_includes_package_session_and_ics(authed_client, monk
 
 def test_couple_appointment_sends_email_and_session_to_both_clients(authed_client, monkeypatch):
     _client, fake_supabase = authed_client
+    fake_supabase.appuntamenti["44"] = {"id": "44", "email_conferme": {}}
     fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "cognome": "Rossi", "email": "mario@example.com"}
     fake_supabase.clienti["202"] = {"id": "202", "nome": "Anna", "cognome": "Bianchi", "email": "anna@example.com"}
     fake_supabase.servizi["20"] = {"id": "20", "nome": "Ginnastica posturale di coppia"}
@@ -652,6 +726,7 @@ def test_couple_appointment_sends_email_and_session_to_both_clients(authed_clien
 
 def test_confirmation_email_omits_session_without_package_or_email(authed_client, monkeypatch):
     _client, fake_supabase = authed_client
+    fake_supabase.appuntamenti["43"] = {"id": "43", "email_conferme": {}}
     fake_supabase.clienti["101"] = {"id": "101", "nome": "Mario", "email": "mario@example.com"}
     fake_supabase.clienti["202"] = {"id": "202", "nome": "Luca", "email": ""}
     fake_supabase.servizi["10"] = {"id": "10", "nome": "Massoterapia"}
@@ -1039,3 +1114,198 @@ def test_update_stato_updates_appointment_and_redirects(authed_client):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/")
     assert fake_supabase.appuntamenti["42"]["stato"] == "completato"
+
+
+@pytest.fixture
+def tracked_couple(authed_client):
+    client, db = authed_client
+    db.appuntamenti["42"] = {
+        "id": "42", "cliente_id": "101", "servizio_id": "20", "stato": "prenotato", "email_conferme": {},
+        "start_datetime": "2026-11-11T10:00:00", "end_datetime": "2026-11-11T11:00:00",
+    }
+    db.appuntamenti_clienti = [{"appuntamento_id": "42", "cliente_id": cid} for cid in ("101", "202")]
+    db.clienti = {
+        "101": {"id": "101", "nome": "Mario", "email": "mario@example.com"},
+        "202": {"id": "202", "nome": "Anna", "email": "anna@example.com"},
+    }
+    db.servizi["20"] = {"id": "20", "nome": "Ginnastica di coppia"}
+    return client, db
+
+
+def test_retry_only_failed_recipient_without_duplicate_booking(tracked_couple, monkeypatch):
+    client, db = tracked_couple
+    sent = []
+    def send(email, *args, **kwargs):
+        sent.append(email)
+        if email == "anna@example.com" and sent.count(email) == 1:
+            return {"success": False, "provider": "gmail", "error_code": "network_unreachable", "message": "Connessione non disponibile"}
+        return {"success": True, "provider": "gmail"}
+    monkeypatch.setattr(app_module, "invia_email_dettagliata", send)
+    result = app_module.invia_conferme_appuntamento([db.appuntamenti["42"]], ["101", "202"], "20")
+    assert result["sent_count"] == result["failed_count"] == 1
+    states = db.appuntamenti["42"]["email_conferme"]
+    assert states["101"]["status"] == "sent"
+    assert states["202"]["status"] == "failed"
+    response = client.get("/api/appuntamenti/42/conferme")
+    assert response.status_code == 200
+    people = response.get_json()["destinatari"]
+    assert [p["can_send"] for p in people] == [False, True]
+    assert "mario@example.com" not in response.get_data(as_text=True)
+    retry = client.post("/api/appuntamenti/42/conferme", json={"cliente_id": "202"})
+    assert retry.get_json()["email_confirmation"]["sent_count"] == 1
+    duplicate = client.post("/api/appuntamenti/42/conferme", json={"cliente_id": "101"})
+    assert duplicate.get_json()["email_confirmation"]["skipped_already_sent_count"] == 1
+    assert sent == ["mario@example.com", "anna@example.com", "anna@example.com"]
+    assert len(db.appuntamenti) == 1
+    assert db.appuntamenti["42"]["email_conferme"]["202"]["status"] == "sent"
+
+
+def test_retry_rejects_other_client_and_cancelled_appointment(tracked_couple, monkeypatch):
+    client, db = tracked_couple
+    monkeypatch.setattr(app_module, "invia_email_dettagliata", lambda *args, **kwargs: pytest.fail("Email non autorizzata"))
+    assert client.post("/api/appuntamenti/42/conferme", json={"cliente_id": "999"}).status_code == 400
+    db.appuntamenti["42"]["stato"] = "annullato"
+    assert client.post("/api/appuntamenti/42/conferme", json={"cliente_id": "101"}).status_code == 409
+
+
+def test_unknown_delivery_requires_explicit_confirmation(tracked_couple, monkeypatch):
+    client, db = tracked_couple
+    sent = []
+    monkeypatch.setattr(app_module, "invia_email_dettagliata", lambda *args, **kwargs: sent.append(1) or {"success": True})
+    db.appuntamenti["42"]["email_conferme"] = {"101": {"status": "unknown"}}
+    blocked = client.post("/api/appuntamenti/42/conferme", json={"cliente_id": "101"})
+    assert blocked.get_json()["email_confirmation"]["errors"][0]["code"] == "delivery_unknown"
+    assert sent == []
+    allowed = client.post("/api/appuntamenti/42/conferme", json={"cliente_id": "101", "conferma_esito_incerto": True})
+    assert allowed.get_json()["email_confirmation"]["sent_count"] == 1
+    assert sent == [1]
+
+
+def test_store_claim_is_exclusive_and_preserves_other_recipient(tracked_couple, monkeypatch):
+    _client, db = tracked_couple
+    store = app_module.ConfirmationStore(db)
+    original = store._swap
+    calls = []
+    def concurrent_change(id, old, new):
+        if not calls:
+            calls.append(1)
+            db.appuntamenti[id]["email_conferme"] = {"202": {"status": "failed"}}
+            return False
+        return original(id, old, new)
+    monkeypatch.setattr(store, "_swap", concurrent_change)
+    claim = store.claim("42", "101", "fingerprint")
+    assert claim["acquired"] is True
+    assert db.appuntamenti["42"]["email_conferme"]["202"]["status"] == "failed"
+    assert store.claim("42", "101", "fingerprint")["reason"] == "send_in_progress"
+    store.finish("42", "101", claim["attempt_id"], "sent")
+    assert store.claim("42", "101", "fingerprint")["reason"] == "already_sent"
+    assert store.claim("42", "101", "changed-fingerprint")["acquired"] is True
+
+
+def test_persistence_error_prevents_send(tracked_couple, monkeypatch):
+    client, db = tracked_couple
+    db.appuntamenti["42"].pop("email_conferme")
+    monkeypatch.setattr(app_module, "invia_email_dettagliata", lambda *args, **kwargs: pytest.fail("Invio senza tracciamento"))
+    assert client.get("/api/appuntamenti/42/conferme").status_code == 503
+    result = app_module.invia_conferme_appuntamento([db.appuntamenti["42"]], ["101"], "20")
+    assert result["errors"][0]["code"] == "tracking_unavailable"
+    assert len(db.appuntamenti) == 1
+
+
+def test_changed_appointment_marks_confirmation_outdated(tracked_couple, monkeypatch):
+    client, db = tracked_couple
+    monkeypatch.setattr(app_module, "invia_email_dettagliata", lambda *args, **kwargs: {"success": True})
+    app_module.invia_conferme_appuntamento([db.appuntamenti["42"]], ["101"], "20")
+    db.appuntamenti["42"]["start_datetime"] = "2026-11-11T10:30:00"
+    person = client.get("/api/appuntamenti/42/conferme").get_json()["destinatari"][0]
+    assert person["status"] == "outdated"
+    assert person["can_send"] is True
+
+
+def test_overlap_warning_ignores_adjacent_cancelled_and_current(authed_client):
+    client, db = authed_client
+    for id, start, end, state in [
+        ("1", "09:00", "10:00", "prenotato"), ("2", "10:00", "11:00", "annullato"),
+        ("3", "10:15", "10:45", "occupato"), ("4", "10:00", "11:00", "prenotato"),
+    ]:
+        db.appuntamenti[id] = {"id": id, "start_datetime": "2026-11-11T" + start + ":00", "end_datetime": "2026-11-11T" + end + ":00", "stato": state}
+    response = client.post("/api/appuntamenti/conflitti", json={
+        "slots": [{"start_datetime": "2026-11-11T10:00:00", "end_datetime": "2026-11-11T11:00:00"}], "ignore_id": "4",
+    })
+    assert response.get_json() == {"count": 1, "internal_count": 0}
+    assert all(call["operation"] == "select" for call in db.calls)
+
+
+@pytest.mark.parametrize("slots", [[], [{}], [{"start_datetime": "invalid", "end_datetime": "invalid"}]])
+def test_overlap_rejects_invalid_slots(authed_client, slots):
+    client, _db = authed_client
+    assert client.post("/api/appuntamenti/conflitti", json={"slots": slots}).status_code == 400
+
+
+def test_overlap_detects_overlaps_between_new_slots(authed_client):
+    client, _db = authed_client
+    response = client.post("/api/appuntamenti/conflitti", json={"slots": [
+        {"start_datetime": "2026-11-11T10:00:00", "end_datetime": "2026-11-11T11:00:00"},
+        {"start_datetime": "2026-11-11T10:30:00", "end_datetime": "2026-11-11T11:30:00"},
+    ]})
+    assert response.get_json() == {"count": 0, "internal_count": 1}
+
+
+@pytest.mark.parametrize("method,path", [("get", "/api/appuntamenti/42/conferme"), ("post", "/api/appuntamenti/42/conferme"), ("post", "/api/appuntamenti/conflitti")])
+def test_new_workflows_require_login(unauth_client, method, path):
+    assert getattr(unauth_client, method)(path).status_code == 302
+
+
+@pytest.mark.parametrize("show_payments", [False, True])
+@pytest.mark.parametrize("populated", [False, True])
+def test_workflow_templates_render_and_payments_can_be_hidden(monkeypatch, show_payments, populated):
+    from html.parser import HTMLParser
+    from flask import render_template
+
+    class Page(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.ids = []
+            self.links = []
+            self.forms = []
+
+        def handle_starttag(self, tag, attributes):
+            attrs = dict(attributes)
+            if attrs.get("id"):
+                self.ids.append(attrs["id"])
+            if tag == "a":
+                self.links.append(attrs.get("href"))
+            if tag == "form":
+                self.forms.append(attrs.get("action"))
+
+    monkeypatch.setitem(app_module.app.config, "SHOW_PAYMENTS", show_payments)
+    customer = {"id": "101", "nome": "Élodie", "cognome": "Rossi", "email": "cliente@example.com"}
+    package = {"id": "p1", "tipi_pacchetto": {"nome": "Percorso", "numero_sedute": 10}, "sedute_effettuate": 8, "sedute_rimanenti": 2}
+    with app_module.app.test_request_context("/"):
+        home = render_template("index.html")
+        archive = render_template("clienti.html", clienti=[customer] if populated else [])
+        profile = render_template("cliente_dettaglio.html", cliente=customer,
+            pacchetti_cliente=[package] if populated else [], tipi_pacchetto=[], appuntamenti=[], storico_appuntamenti=[])
+    pages = []
+    for html in (home, archive, profile):
+        page = Page()
+        page.feed(html)
+        assert len(page.ids) == len(set(page.ids)), "Duplicate element IDs"
+        assert "workflow.css" in html
+        pages.append(page)
+    assert ("/pagamenti" in pages[0].links) is show_payments
+    assert ('class="detail-card profile-payments"' in profile) is show_payments
+    assert "/assegna_pacchetto" in pages[2].forms
+    assert "pacchettoSelect" in pages[0].ids
+    assert ("/cliente/101" in pages[1].links) is populated
+    if populated:
+        assert "/chiudi_pacchetto/p1" in pages[2].forms
+        assert "package-low" in profile
+
+
+def test_hidden_payments_page_is_still_available(authed_client, monkeypatch):
+    client, _db = authed_client
+    monkeypatch.setitem(app_module.app.config, "SHOW_PAYMENTS", False)
+    response = client.get("/pagamenti")
+    assert response.status_code == 200
+    assert b"Resoconto Pagamenti" in response.data

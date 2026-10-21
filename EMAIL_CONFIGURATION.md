@@ -55,8 +55,36 @@ si registrano solo provider e codice controllato: nessuna risposta grezza del
 provider, password, chiave API o indirizzo del destinatario.
 
 Un invio riuscito indica l'accettazione da parte del servizio email, non la
-consegna garantita nella casella del destinatario. Lo stato non viene ancora
-salvato nello storico dell'appuntamento; il pulsante di reinvio non è incluso.
+consegna garantita nella casella del destinatario.
+
+## Stato persistente e reinvio individuale
+
+Nel box **Modifica appuntamento**, la sezione **Conferme email** mostra l'ultimo
+esito per ciascuna persona, anche per gli appuntamenti di coppia. Si può inviare
+la conferma a un solo destinatario senza ricreare l'appuntamento. L'allegato ICS
+viene mantenuto. Gli invii già riusciti con gli stessi dati sono esclusi dal
+reinvio; se cambia l'orario o l'indirizzo email si può inviare la nuova conferma.
+
+Lo stato viene salvato nel campo JSONB `appuntamenti.email_conferme` tramite
+aggiornamenti condizionali atomici, per evitare due invii simultanei allo stesso
+destinatario. Non vengono salvati password, testo dell'email o indirizzi: solo
+stato, orario, provider, codice controllato e impronta dei dati dell'invio.
+Il campo contiene l'ultimo esito, non un registro completo di tutti i tentativi.
+
+Un timeout o una disconnessione durante l'invio può avere esito incerto: il
+gestionale non ritenta automaticamente e richiede una conferma esplicita prima
+di riprovare, perché l'email potrebbe essere già stata accettata. Un invio rimasto
+in corso per oltre due minuti viene trattato come incerto. Se il salvataggio dello
+stato non è disponibile, non si avvia un nuovo invio.
+
+Il campo va creato **prima di pubblicare il nuovo codice**: usare lo script
+idempotente `sql/email_confirmation_tracking.sql` sugli altri ambienti. È già
+stato applicato e verificato sul progetto Supabase collegato a questo gestionale.
+Non modifica pacchetti, clienti o appuntamenti esistenti; per le vecchie conferme
+compare “Nessun invio registrato”, senza supporre che siano state consegnate.
+
+La scelta del provider resta invariata: queste funzioni non aggirano il blocco
+SMTP di Render Free e non configurano un dominio o un servizio email.
 
 Riferimenti: [limiti Render Free](https://render.com/docs/free),
 [dominio di prova Resend](https://resend.com/docs/knowledge-base/403-error-resend-dev-domain),

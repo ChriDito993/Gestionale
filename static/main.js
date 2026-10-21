@@ -921,15 +921,11 @@ buttonText: {
                         const card = document.createElement("div");
                         card.className = "detail-card";
                         card.style.padding = "16px";
-                        card.innerHTML = `
-                            <div style="font-weight:600; font-size:15px;">${pac.cliente}</div>
-                            <div style="margin-top:4px; font-size:13px; opacity:0.7;">
-                                ${pac.nome_pacchetto}
-                            </div>
-                            <div style="margin-top:8px; font-size:13px;">
-                                Sedute rimanenti: <strong>${pac.sedute_rimanenti}</strong>
-                            </div>
-                        `;
+                        const nome = document.createElement("strong"); nome.textContent = pac.cliente;
+                        const tipo = document.createElement("p"); tipo.className = "edit-help"; tipo.textContent = pac.nome_pacchetto;
+                        const restanti = document.createElement("span"); restanti.className = Number(pac.sedute_rimanenti) <= 2 ? "package-low" : "package-remaining";
+                        restanti.textContent = `Sedute rimanenti: ${pac.sedute_rimanenti}${Number(pac.sedute_rimanenti) <= 2 ? " · In esaurimento" : ""}`;
+                        card.append(nome, tipo, restanti);
                         pacchettiList.appendChild(card);
                     });
                 })
@@ -1157,7 +1153,7 @@ function caricaPacchettiCliente(clienteId) {
 
                 const option = document.createElement("option");
                 option.value = pac.id;
-                option.text = pac.nome + " (" + pac.sedute_rimanenti + " rimaste)";
+                option.text = pac.nome + " (" + pac.sedute_rimanenti + " rimaste)" + (Number(pac.sedute_rimanenti) <= 2 ? " · In esaurimento" : "");
                 option.dataset.servizio = pac.servizio_id;
 
                 select.appendChild(option);
@@ -1338,6 +1334,10 @@ async function aggiornaOrario(infoOrEvent) {
         : formatDateTimeForApi(new Date(evento.start.getTime() + 60 * 60000));
 
     try {
+        if (!await confermaSovrapposizioni([{ start_datetime: formatDateTimeForApi(evento.start), end_datetime: endISO }], evento.id)) {
+            if (typeof info.revert === "function") info.revert();
+            return;
+        }
         await fetchJsonOrThrow('/api/appuntamenti/' + evento.id, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -1467,7 +1467,7 @@ function mostraEsitoEmailConferma(esito) {
     const messaggiErrore = [...new Set((esito.errors || []).map(errore => errore.message).filter(Boolean))];
     const motivoErrore = messaggiErrore.join(" ");
 
-    if (inviate > 0 && fallite === 0 && senzaEmail === 0) {
+    if (inviate > 0 && fallite === 0 && senzaEmail === 0 && !messaggiErrore.length) {
         mostraToast(
             inviate === 1 ? "Email di conferma inviata." : `Inviate ${inviate} email di conferma.`,
             "success"
@@ -1491,7 +1491,72 @@ function mostraEsitoEmailConferma(esito) {
 
     if (senzaEmail > 0) {
         mostraToast("Email di conferma non inviata: il cliente non ha un indirizzo email.", "info");
+    } else if (esito.skipped_already_sent_count > 0) {
+        mostraToast("Conferma già inviata: nessuna email duplicata.", "info");
     }
+}
+
+async function caricaConfermeEmail(appuntamentoId) {
+    const list = document.getElementById("confermeEmailList");
+    if (!list) return;
+    list.textContent = "Caricamento esiti...";
+    const labels = { sent: "Invio riuscito", failed: "Invio fallito", unknown: "Esito da verificare", sending: "Invio in corso", pending: "Invio non completato",
+        not_requested: "Conferma non richiesta", untracked: "Nessun invio registrato", missing_email: "Indirizzo email mancante", outdated: "Dati modificati: da riconfermare" };
+    try {
+        const payload = await fetchJsonOrThrow(`/api/appuntamenti/${appuntamentoId}/conferme`, {}, "Impossibile leggere gli esiti email");
+        if (String(window.eventoSelezionato?.id) !== String(appuntamentoId)) return;
+        list.replaceChildren();
+        if (!payload.destinatari.length) { list.textContent = "Nessun cliente associato."; return; }
+        payload.destinatari.forEach(persona => {
+            const row = document.createElement("div"); row.className = "confirmation-person";
+            const info = document.createElement("div");
+            const name = document.createElement("strong"); name.textContent = persona.nome || "Cliente";
+            const status = document.createElement("span"); status.className = `confirmation-status status-${persona.status}`;
+            status.textContent = labels[persona.status] || "Esito non disponibile";
+            info.append(name, status);
+            if (persona.updated_at) {
+                const when = document.createElement("small");
+                when.textContent = new Date(persona.updated_at).toLocaleString("it-IT");
+                info.appendChild(when);
+            }
+            if (persona.message) { const reason = document.createElement("small"); reason.textContent = persona.message; info.appendChild(reason); }
+            if (!persona.has_email) { const missing = document.createElement("small"); missing.textContent = "Aggiungi un indirizzo nell'anagrafica per inviare."; info.appendChild(missing); }
+            row.appendChild(info);
+            if (persona.can_send) {
+                const button = document.createElement("button"); button.type = "button"; button.className = "confirmation-retry";
+                button.textContent = ["failed", "unknown"].includes(persona.status) ? "Riprova" : "Invia conferma";
+                button.addEventListener("click", async () => {
+                    const warning = persona.status === "unknown" ? "L'email potrebbe essere già partita. Reinviandola potresti duplicarla. Procedere?"
+                        : persona.status === "untracked" ? "Per questo appuntamento non esiste uno storico degli invii. Una conferma potrebbe essere già stata inviata. Inviarne una ora?"
+                        : `Inviare la conferma a ${persona.nome}?`;
+                    if (!window.confirm(warning)) return;
+                    button.disabled = true;
+                    try {
+                        const result = await fetchJsonOrThrow(`/api/appuntamenti/${appuntamentoId}/conferme`, {
+                            method: "POST", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ cliente_id: persona.cliente_id, conferma_esito_incerto: persona.status === "unknown" })
+                        }, "Errore nel reinvio della conferma");
+                        mostraEsitoEmailConferma(result.email_confirmation);
+                    } catch (error) { mostraToast(error.message, "error"); }
+                    finally {
+                        if (String(window.eventoSelezionato?.id) === String(appuntamentoId)) await caricaConfermeEmail(appuntamentoId);
+                    }
+                });
+                row.appendChild(button);
+            }
+            list.appendChild(row);
+        });
+    } catch (error) {
+        if (String(window.eventoSelezionato?.id) === String(appuntamentoId)) list.textContent = error.message;
+    }
+}
+
+async function confermaSovrapposizioni(slots, ignoreId = null) {
+    const result = await fetchJsonOrThrow("/api/appuntamenti/conflitti", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slots, ignore_id: ignoreId })
+    }, "Impossibile verificare le sovrapposizioni. Riprova prima di salvare.");
+    if (!result.count && !result.internal_count) return true;
+    return window.confirm(`Attenzione: ${result.count || 0} appuntamenti o blocchi già presenti si sovrappongono agli orari scelti.${result.internal_count ? " Anche alcune delle nuove date si sovrappongono tra loro." : ""} Vuoi procedere comunque?`);
 }
 
 async function salvaEvento() {
@@ -1571,6 +1636,12 @@ async function salvaEvento() {
     setButtonLoading(salvaBtn, true, { label: "Salvataggio..." });
 
     try {
+        const slotsDaVerificare = slotsPersonalizzatiPayload || Array.from({ length: occorrenze }, (_, index) => {
+            const start = new Date(startLocal); const end = new Date(endLocal);
+            start.setDate(start.getDate() + 7 * index); end.setDate(end.getDate() + 7 * index);
+            return { start_datetime: formatDateTimeForApi(start), end_datetime: formatDateTimeForApi(end) };
+        });
+        if (!await confermaSovrapposizioni(slotsDaVerificare)) return;
         const payload = await fetchJsonOrThrow('/api/appuntamenti', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1621,168 +1692,38 @@ function getColoreServizio(servizio) {
 }
 
 function apriModificaModal() {
-
-    const extended = window.eventoSelezionato.extendedProps || {};
-
-    const clienti = extended.clienti || "";
-    const clientiIds = extended.clienti_ids || [];
-    const servizio = extended.servizio || "";
-    const numeroSeduta = extended.numero_seduta;
-
-    let titoloHTML = "";
-
-    if (clienti) {
-
-        // Se abbiamo array ID clienti (multi cliente)
-        if (Array.isArray(clientiIds) && clientiIds.length > 0) {
-
-            // Se i clienti arrivano come stringa tipo "Nome1 + Nome2" li separiamo
-            let nomiArray = [];
-
-            if (Array.isArray(clienti)) {
-                nomiArray = clienti;
-            } else if (typeof clienti === "string") {
-                nomiArray = clienti.split("+").map(n => n.trim());
-            }
-
-            clientiIds.forEach((id, index) => {
-
-                const nomeVisualizzato = nomiArray[index] || "Cliente";
-
-                titoloHTML += `
-                    <div style="
-                        font-size:18px;
-                        font-weight:600;
-                        color:${getColoreServizio(servizio)};
-                    ">
-                        <a href="/cliente/${id}"
-                           style="
-                              color:${getColoreServizio(servizio)};
-                              text-decoration:none;
-                           ">
-                            ${nomeVisualizzato}
-                        </a>
-                    </div>
-                `;
-            });
-
-        } else {
-
-            // fallback se abbiamo solo nome ma non ID
-            titoloHTML += `
-                <div style="
-                    font-size:18px;
-                    font-weight:600;
-                    color:${getColoreServizio(servizio)};
-                ">
-                    ${clienti}
-                </div>
-            `;
-        }
+    const evento = window.eventoSelezionato;
+    if (!evento) return;
+    const extended = evento.extendedProps || {};
+    const ids = extended.clienti_ids || [];
+    const nomi = Array.isArray(extended.clienti) ? extended.clienti : String(extended.clienti || '').split('+').map(nome => nome.trim());
+    const titolo = document.getElementById('editAppointmentTitle');
+    titolo.replaceChildren();
+    if (ids.length) {
+        ids.forEach((id, index) => {
+            if (index) titolo.appendChild(document.createTextNode(' + '));
+            const link = document.createElement('a');
+            link.href = '/cliente/' + encodeURIComponent(id);
+            link.textContent = nomi[index] || 'Cliente';
+            titolo.appendChild(link);
+        });
+    } else {
+        titolo.textContent = extended.occupato ? 'Occupato' : nomi.join(' + ') || 'Appuntamento';
     }
-
-    if (servizio) {
-        titoloHTML += `
-            <div style="
-                font-size:13px;
-                margin-top:6px;
-                font-variant: small-caps;
-                letter-spacing:1px;
-                color:#6b7280;
-            ">
-                ${servizio}
-            </div>
-        `;
-    }
-
-    if (numeroSeduta) {
-        titoloHTML += `
-            <div style="margin-top:10px;">
-                <span style="
-                    display:inline-block;
-                    padding:5px 12px;
-                    border-radius:20px;
-                    background:linear-gradient(135deg,#2a9d8f,#21867a);
-                    color:white;
-                    font-size:12px;
-                    font-weight:600;
-                    letter-spacing:0.3px;
-                ">
-                    Seduta ${numeroSeduta}
-                </span>
-            </div>
-        `;
-    }
-
-    const coloreBarra = getColoreServizio(servizio);
-
-    document.querySelector("#modificaModal h3").innerHTML = `
-        <div style="
-            border-left:4px solid ${coloreBarra};
-            padding-left:14px;
-            margin-left:4px;
-        ">
-            ${titoloHTML}
-        </div>
-    `;
-
-    const start = window.eventoSelezionato.start;
-    const end = window.eventoSelezionato.end;
-
-    const data = formatDateForInput(start);
-    const oraInizio = start.toTimeString().slice(0,5);
-    const oraFine = end.toTimeString().slice(0,5);
-
-    document.getElementById("dataModifica").value = data;
-    document.getElementById("oraInizioModifica").value = oraInizio;
-    document.getElementById("oraFineModifica").value = oraFine;
-    document.getElementById("noteModifica").value = extended.note || "";
-
-
-    const modal = document.getElementById("modificaModal");
-    if (!modal) return;
+    const meta = document.getElementById('editAppointmentMeta');
+    if (meta) meta.textContent = (extended.servizio || '') + (extended.numero_seduta ? ' · Seduta ' + extended.numero_seduta : '');
+    const end = evento.end || new Date(evento.start.getTime() + DEFAULT_APPOINTMENT_MINUTES * 60000);
+    document.getElementById('dataModifica').value = formatDateForInput(evento.start);
+    document.getElementById('oraInizioModifica').value = formatTimeForInput(evento.start);
+    document.getElementById('oraFineModifica').value = formatTimeForInput(end);
+    document.getElementById('noteModifica').value = extended.note || '';
+    const modal = document.getElementById('modificaModal');
     autoClosePromemoria();
-    requestAnimationFrame(() => {
-        modal.style.display = "block";
-        modal.classList.add("modal-active");
-    });
-
-    // 🎯 Restyle bottone elimina PREMIUM (selezione sicura per classe)
-    const deleteBtn = modal.querySelector(".btn-danger");
-    if (deleteBtn) {
-
-        deleteBtn.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="white" viewBox="0 0 24 24">
-                <path d="M3 6h18" stroke="white" stroke-width="2" stroke-linecap="round"/>
-                <path d="M8 6V4h8v2" stroke="white" stroke-width="2" stroke-linecap="round"/>
-                <rect x="6" y="6" width="12" height="14" rx="2" stroke="white" stroke-width="2" fill="none"/>
-            </svg>
-        `;
-
-        deleteBtn.style.width = "56px";
-        deleteBtn.style.height = "56px";
-        deleteBtn.style.borderRadius = "50%";
-        deleteBtn.style.display = "flex";
-        deleteBtn.style.alignItems = "center";
-        deleteBtn.style.justifyContent = "center";
-        deleteBtn.style.margin = "24px auto 0 auto";
-        deleteBtn.style.background = "linear-gradient(135deg,#ef4444,#dc2626)";
-        deleteBtn.style.boxShadow = "0 10px 25px rgba(220,38,38,0.4)";
-        deleteBtn.style.padding = "0";
-        deleteBtn.style.border = "none";
-        deleteBtn.style.cursor = "pointer";
-        deleteBtn.style.transition = "all 0.2s ease";
-
-        deleteBtn.onmouseenter = () => {
-            deleteBtn.style.transform = "translateY(-2px) scale(1.05)";
-            deleteBtn.style.boxShadow = "0 14px 30px rgba(220,38,38,0.5)";
-        };
-
-        deleteBtn.onmouseleave = () => {
-            deleteBtn.style.transform = "none";
-            deleteBtn.style.boxShadow = "0 10px 25px rgba(220,38,38,0.4)";
-        };
-    }
+    const whatsapp = document.getElementById('whatsappDestinatari');
+    if (whatsapp) { whatsapp.hidden = true; whatsapp.replaceChildren(); }
+    document.getElementById('confermeEmailSection').hidden = !!extended.occupato;
+    requestAnimationFrame(() => { modal.style.display = 'block'; modal.classList.add('modal-active'); });
+    if (!extended.occupato) caricaConfermeEmail(evento.id);
 }
 function chiudiModificaModal() {
     const modal = document.getElementById("modificaModal");
@@ -1889,6 +1830,10 @@ async function salvaModifiche() {
     setButtonLoading(salvaBtn, true, { label: "Salvataggio..." });
 
     try {
+        const prima = window.eventoSelezionato;
+        if (start_datetime !== formatDateTimeForApi(prima.start) || end_datetime !== (prima.end ? formatDateTimeForApi(prima.end) : "")) {
+            if (!await confermaSovrapposizioni([{ start_datetime, end_datetime }], prima.id)) return;
+        }
         await fetchJsonOrThrow('/api/appuntamenti/' + window.eventoSelezionato.id, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -1974,77 +1919,49 @@ function inviaPromemoria() {
 }
 
 
-function inviaPromemoriaWhatsApp() {
-
-    if (!window.eventoSelezionato) {
-        mostraToast("Nessun appuntamento selezionato", "error");
-        return;
-    }
-
-    const extended = window.eventoSelezionato.extendedProps || {};
-    const clientiIds = extended.clienti_ids || [];
-    const servizio = extended.servizio || "trattamento";
-
-    if (!clientiIds.length) {
-        mostraToast("Cliente non disponibile", "error");
-        return;
-    }
-
-    const clienteId = clientiIds[0];
-
-    fetch('/api/clienti/' + clienteId)
-        .then(res => {
-            if (!res.ok) throw new Error("Errore recupero numero");
-            return res.json();
-        })
-        .then(cliente => {
-
-            if (!cliente.telefono) {
-                mostraToast("Numero non disponibile", "error");
-                return;
+async function inviaPromemoriaWhatsApp() {
+    const evento = window.eventoSelezionato;
+    if (!evento) { mostraToast('Nessun appuntamento selezionato', 'error'); return; }
+    const ids = evento.extendedProps?.clienti_ids || [];
+    const box = document.getElementById('whatsappDestinatari');
+    if (!box || !ids.length) { mostraToast('Cliente non disponibile', 'error'); return; }
+    box.hidden = false; box.textContent = 'Caricamento destinatari...';
+    try {
+        const persone = await Promise.all(ids.map(id => fetchJsonOrThrow('/api/clienti/' + encodeURIComponent(id), {}, 'Errore recupero destinatario')));
+        if (String(window.eventoSelezionato?.id) !== String(evento.id)) return;
+        box.replaceChildren();
+        const help = document.createElement('p'); help.className = 'edit-help';
+        help.textContent = 'Apri WhatsApp per ciascuna persona e conferma l’invio nell’app.'; box.appendChild(help);
+        persone.forEach((persona, index) => {
+            const nome = [persona.nome, persona.cognome].filter(Boolean).join(' ') || 'Cliente';
+            let numero = String(persona.telefono || '').replace(/[^0-9]/g, '');
+            if (numero.startsWith('00')) numero = numero.slice(2);
+            if (numero.length === 10 && numero.startsWith('3')) numero = '39' + numero;
+            if (numero.length < 8 || numero.length > 15) {
+                const missing = document.createElement('p'); missing.className = 'edit-help'; missing.textContent = nome + ': numero non disponibile o non valido.'; box.appendChild(missing); return;
             }
-
-            // 🔧 Normalizzazione numero (solo cifre)
-            let numero = cliente.telefono
-                .replace(/\s+/g, '')
-                .replace(/-/g, '')
-                .replace(/[^\d]/g, '');
-
-            // Se numero italiano senza prefisso → aggiunge 39
-            if (numero.length === 10 && numero.startsWith("3")) {
-                numero = "39" + numero;
-            }
-
-            const start = window.eventoSelezionato.start;
-            const data = start.toLocaleDateString('it-IT');
-            const ora = start.toTimeString().slice(0,5);
-            const numeroSeduta = extended.numero_seduta;
-            const infoSeduta = numeroSeduta
-                ? ` Questa sarà la seduta n° ${numeroSeduta} del tuo pacchetto.`
-                : "";
-
-            const messaggio = `Ciao ${cliente.nome}, ti ricordo l'appuntamento di ${servizio} il ${data} alle ${ora}.${infoSeduta} A presto!`;
-
-            const url = `https://wa.me/${numero}?text=${encodeURIComponent(messaggio)}`;
-
-            // 🔥 Apertura diretta (evita blocco popup)
-            window.location.href = url;
-
-            mostraToast("Apertura WhatsApp...", "success");
-            autoClosePromemoria();
-        })
-        .catch(() => {
-            mostraToast("Errore recupero numero", "error");
+            const extended = evento.extendedProps || {};
+            const servizio = extended.servizio || 'trattamento';
+            const seduta = extended.numero_seduta && (servizio.toLowerCase().includes('coppia') || index === 0)
+                ? ' Questa sarà la seduta n° ' + extended.numero_seduta + ' del tuo pacchetto.' : '';
+            const messaggio = 'Ciao ' + (persona.nome || '') + ', ti ricordo l’appuntamento di ' + servizio + ' il ' + evento.start.toLocaleDateString('it-IT') + ' alle ' + formatTimeForInput(evento.start) + '.' + seduta + ' A presto!';
+            const link = document.createElement('a'); link.className = 'whatsapp-person-link';
+            link.href = 'https://wa.me/' + numero + '?text=' + encodeURIComponent(messaggio); link.target = '_blank'; link.rel = 'noopener noreferrer';
+            link.textContent = 'WhatsApp · ' + nome;
+            link.addEventListener('click', () => { link.classList.add('whatsapp-opened'); mostraToast('Conferma l’invio in WhatsApp.', 'info'); });
+            box.appendChild(link);
         });
+    } catch (error) { if (String(window.eventoSelezionato?.id) === String(evento.id)) box.textContent = error.message; }
 }
 
 function inviaPromemoriaMail() {
-    mostraToast("Promemoria Email (UI pronta)", "success");
+    mostraToast("Usa le conferme email per inviare il riepilogo a ciascun cliente.", "info");
+    document.getElementById("confermeEmailSection")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     autoClosePromemoria();
 }
 
 function inviaPromemoriaSMS() {
-    mostraToast("Promemoria SMS (UI pronta)", "success");
+    mostraToast("Invio SMS non configurato.", "info");
     autoClosePromemoria();
 }
 

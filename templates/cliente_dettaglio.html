@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MASSOTERAPIA & PT di Christian Di Tommaso</title>
     <link rel="stylesheet" href="{{ static_file('style.css') }}">
+    <link rel="stylesheet" href="{{ static_file('workflow.css') }}">
 </head>
 <body class="cliente-dettaglio-page client-profile-page">
 
@@ -110,7 +111,7 @@
         {% endif %}
     </section>
 
-    <div class="detail-card profile-payments">
+    {% if show_payments %}<div class="detail-card profile-payments">
         <h3>Pagamenti</h3>
 
         <div class="detail-stats-grid profile-payment-stats">
@@ -156,6 +157,7 @@
         </div>
     </div>
 
+    {% endif %}
     <!-- CARD PACCHETTI -->
     <div class="detail-card detail-card-packages profile-package-assignment">
         <h3>Assegna un nuovo pacchetto</h3>
@@ -195,8 +197,12 @@
             <li class="pacchetto-item">
                 <div class="pacchetto-top-row">
                     <strong class="pacchetto-name">{{ tipo_pacchetto.nome or "Pacchetto" }}</strong>
-                    <span class="pacchetto-restanti">Restanti: {{ pac.sedute_rimanenti or 0 }}</span>
+                    <span class="pacchetto-restanti {% if (pac.sedute_rimanenti or 0)|int <= 2 %}package-low{% endif %}">Restanti: {{ pac.sedute_rimanenti or 0 }}</span>
                 </div>
+
+                {% if (pac.sedute_rimanenti or 0)|int <= 2 %}
+                <p class="package-low-hint">{% if (pac.sedute_rimanenti or 0)|int <= 0 %}Nessuna seduta disponibile.{% else %}Pacchetto in esaurimento.{% endif %}</p>
+                {% endif %}
 
                 <div class="pacchetto-progress-meta">
                     Sedute effettuate: {{ sedute_effettuate }} / {{ sedute_totali }}
@@ -206,7 +212,7 @@
                     <div class="pacchetto-progress-fill" data-progress="{{ progress_width }}"></div>
                 </div>
 
-                <form method="POST" action="/chiudi_pacchetto/{{ pac.id }}" class="pacchetto-close-form">
+                <form method="POST" action="/chiudi_pacchetto/{{ pac.id }}" class="pacchetto-close-form" data-pacchetto="{{ tipo_pacchetto.nome or 'Pacchetto' }}" onsubmit="return confermaChiusuraPacchetto(this)">
                     <button type="submit" class="btn-danger-soft">Chiudi Pacchetto</button>
                 </form>
             </li>
@@ -326,6 +332,10 @@
 </div>
 
 <script>
+function confermaChiusuraPacchetto(form) {
+    return window.confirm(`Chiudere il pacchetto “${form.dataset.pacchetto}”? Non sarà più disponibile per i nuovi appuntamenti.`);
+}
+
 function apriModificaCliente() {
     document.getElementById("modificaClienteModal").style.display = "block";
 }

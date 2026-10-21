@@ -12,6 +12,7 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
 
     <link rel="stylesheet" href="{{ static_file('style.css') }}">
+    <link rel="stylesheet" href="{{ static_file('workflow.css') }}">
 </head>
 
 
@@ -36,9 +37,9 @@
                 Archivio clienti
             </a>
 
-            <a href="/pagamenti" class="btn-primary header-nav-link">
+            {% if show_payments %}<a href="/pagamenti" class="btn-primary header-nav-link">
                 Pagamenti
-            </a>
+            </a>{% endif %}
 
             <button type="button" class="btn-primary header-new-client" onclick="apriModalCliente()">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
@@ -373,19 +374,18 @@
 </div>
 
 <!-- MODALE MODIFICA -->
-    <div id="modificaModal" class="modal">
-    <div class="modal-content modal-card-premium modal-shell">
-        <span class="close" onclick="chiudiModificaModal()">✖</span>
-        <h3 class="modal-title-premium modal-title-bar-premium">Modifica Appuntamento</h3>
+    <div id="modificaModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editAppointmentTitle">
+    <div class="modal-content modal-card-premium modal-shell edit-appointment-card">
+        <div class="edit-appointment-heading">
+            <div><span class="edit-eyebrow">Modifica appuntamento</span><h3 id="editAppointmentTitle">Appuntamento</h3><p id="editAppointmentMeta" class="edit-help"></p></div>
+            <button type="button" class="edit-close" onclick="chiudiModificaModal()" aria-label="Chiudi modifica appuntamento">×</button>
+        </div>
 
-        <label>Data</label>
-        <input type="date" id="dataModifica" class="input-apple">
-
-        <label>Ora Inizio</label>
-        <input type="time" id="oraInizioModifica" class="input-apple">
-
-        <label>Ora Fine</label>
-        <input type="time" id="oraFineModifica" class="input-apple">
+        <div class="edit-schedule-grid">
+            <div><label for="dataModifica">Data</label><input type="date" id="dataModifica" class="input-apple"></div>
+            <div><label for="oraInizioModifica">Dalle</label><input type="time" id="oraInizioModifica" class="input-apple"></div>
+            <div><label for="oraFineModifica">Alle</label><input type="time" id="oraFineModifica" class="input-apple"></div>
+        </div>
 
         <label for="noteModifica">Note appuntamento</label>
         <textarea id="noteModifica"
@@ -393,6 +393,12 @@
                   rows="3"
                   maxlength="2000"
                   placeholder="Inserisci eventuali note per questo appuntamento..."></textarea>
+
+        <section id="confermeEmailSection" class="appointment-email-status" aria-labelledby="confermeEmailTitle">
+            <h4 id="confermeEmailTitle">Conferme email</h4>
+            <p class="edit-help">Esito distinto per persona, non una ricevuta di consegna. Si inviano i dati già salvati: salva prima eventuali modifiche.</p>
+            <div id="confermeEmailList" aria-live="polite"></div>
+        </section>
 
         <div class="modal-footer modal-footer-vertical">
             <div class="promemoria-tools">
@@ -446,9 +452,10 @@
                         <span>SMS</span>
                     </button>
                 </div>
+                <div id="whatsappDestinatari" class="whatsapp-recipients" hidden aria-live="polite"></div>
             </div>
-            <button type="button" id="btnSalvaModifiche" class="btn-apple-primary" onclick="salvaModifiche()">Salva Modifiche</button>
-            <button type="button" id="btnEliminaEvento" class="btn-apple-ghost btn-danger" onclick="eliminaEvento()">Elimina Appuntamento</button>
+            <button type="button" id="btnSalvaModifiche" class="btn-apple-primary" onclick="salvaModifiche()">Salva modifiche</button>
+            <button type="button" id="btnEliminaEvento" class="btn-apple-ghost btn-danger" onclick="eliminaEvento()">Elimina appuntamento</button>
         </div>
     </div>
 </div>

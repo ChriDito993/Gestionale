@@ -5,45 +5,52 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MASSOTERAPIA & PT di Christian Di Tommaso</title>
     <link rel="stylesheet" href="{{ static_file('style.css') }}">
+    <link rel="stylesheet" href="{{ static_file('workflow.css') }}">
 </head>
-<body>
+<body class="client-archive-page">
 
 <div class="app-container">
 
     <header class="app-header">
-        <h1>Anagrafiche Clienti</h1>
-        <a href="/" class="btn-primary">← Torna al Calendario</a>
+        <div><p class="archive-eyebrow">Anagrafiche</p><h1>Archivio clienti</h1></div>
+        <a href="/" class="btn-primary">Calendario</a>
     </header>
 
     <!-- BARRA RICERCA -->
+    <div class="archive-toolbar">
     <div class="search-wrapper">
-        <input type="text" id="searchInput" placeholder="🔎 Cerca cliente per nome o cognome...">
+        <label class="sr-only" for="searchInput">Cerca cliente per nome o cognome</label>
+        <input type="search" id="searchInput" placeholder="Cerca nome o cognome" autocomplete="off">
+        <span id="clientiVisibili" class="archive-count" role="status">{{ clienti|length }} clienti</span>
     </div>
-
-    <!-- TOGGLE VISTA -->
     <div class="view-toggle premium-toggle">
-        <button id="gridViewBtn" class="toggle-btn active" type="button">
-            Vista Box
+        <button id="gridViewBtn" class="toggle-btn active" type="button" aria-pressed="true">
+            Schede
         </button>
-        <button id="listViewBtn" class="toggle-btn" type="button">
-            Vista Lista
+        <button id="listViewBtn" class="toggle-btn" type="button" aria-pressed="false">
+            Lista
         </button>
+    </div>
     </div>
 
     <!-- MESSAGGIO NESSUN RISULTATO -->
-    <div id="noResults" style="display:none; margin-bottom:20px; color:#6b7280;">
-        Nessun cliente trovato
+    <div id="noResults" class="archive-empty" style="display:{% if clienti %}none{% else %}block{% endif %};">
+        Nessun cliente trovato. Prova con un altro nome.
     </div>
 
     <div class="card-grid grid-view" id="clientiContainer">
         {% for cliente in clienti %}
         <a href="/cliente/{{ cliente.id }}"
            class="cliente-card-link cliente-item"
-           data-nome="{{ cliente.nome|lower }}"
-           data-cognome="{{ cliente.cognome|lower }}">
+           data-nome="{{ (cliente.nome or '')|lower }}"
+           data-cognome="{{ (cliente.cognome or '')|lower }}">
 
             <div class="cliente-card">
-                <h3>{{ cliente.nome }} {{ cliente.cognome }}</h3>
+                <div class="archive-client-heading">
+                    <span class="archive-avatar" aria-hidden="true">{{ (cliente.nome or '?')[:1]|upper }}{{ (cliente.cognome or '')[:1]|upper }}</span>
+                    <h3>{{ cliente.nome }} {{ cliente.cognome }}</h3>
+                    <span class="archive-arrow" aria-hidden="true">↗</span>
+                </div>
 
                 <p><strong>Telefono:</strong> {{ cliente.telefono or "-" }}</p>
                 <p><strong>Email:</strong> {{ cliente.email or "-" }}</p>
@@ -67,22 +74,23 @@ searchInput.addEventListener("keydown", function(e) {
     }
 });
 
-// Ricerca live
-searchInput.addEventListener("keyup", function() {
-    let value = this.value.toLowerCase();
+// Ricerca anche per nome completo e caratteri accentati.
+const normalizzaRicerca = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+searchInput.addEventListener("input", function() {
+    const termini = normalizzaRicerca(this.value).split(/\s+/).filter(Boolean);
     let visibleCount = 0;
 
     clienti.forEach(function(cliente) {
-        let nome = cliente.getAttribute("data-nome");
-        let cognome = cliente.getAttribute("data-cognome");
+        const nomeCompleto = normalizzaRicerca(cliente.getAttribute("data-nome") + ' ' + cliente.getAttribute("data-cognome"));
 
-        if (nome.includes(value) || cognome.includes(value)) {
+        if (termini.every(termine => nomeCompleto.includes(termine))) {
             cliente.style.display = "block";
             visibleCount++;
         } else {
             cliente.style.display = "none";
         }
     });
+    document.getElementById("clientiVisibili").textContent = visibleCount + (visibleCount === 1 ? " cliente" : " clienti");
 
     // Mostra messaggio se nessun risultato
     if (visibleCount === 0) {
@@ -101,6 +109,7 @@ gridBtn.addEventListener("click", function() {
     container.classList.add("grid-view");
     gridBtn.classList.add("active");
     listBtn.classList.remove("active");
+    gridBtn.setAttribute("aria-pressed", "true"); listBtn.setAttribute("aria-pressed", "false");
 });
 
 listBtn.addEventListener("click", function() {
@@ -108,6 +117,7 @@ listBtn.addEventListener("click", function() {
     container.classList.add("list-view");
     listBtn.classList.add("active");
     gridBtn.classList.remove("active");
+    gridBtn.setAttribute("aria-pressed", "false"); listBtn.setAttribute("aria-pressed", "true");
 });
 </script>
 

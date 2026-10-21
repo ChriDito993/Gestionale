@@ -1,0 +1,89 @@
+/* Appointment editing and per-person confirmation actions. */
+#modificaModal .edit-appointment-card {
+    width: min(620px, calc(100% - 28px));
+    padding: 24px;
+    margin: 4vh auto;
+    max-height: 92vh;
+    max-height: 92dvh;
+    border-radius: 18px;
+}
+#modificaModal [hidden] { display: none !important; }
+#modificaModal .edit-appointment-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+#modificaModal #editAppointmentTitle { margin: 5px 0 0; font-size: 19px; line-height: 1.4; }
+#modificaModal #editAppointmentTitle a { color: #111827; text-decoration: none; }
+#modificaModal #editAppointmentTitle a:hover { color: #21867a; text-decoration: underline; }
+.edit-eyebrow, .edit-help { color: #6b7280; font-size: 12px; line-height: 1.5; }
+.edit-help { margin: 5px 0 10px; }
+.edit-close { flex-shrink: 0; width: 36px; height: 36px; border: 1px solid #e5e7eb; border-radius: 10px; background: #f9fafb; color: #6b7280; font-size: 24px; cursor: pointer; }
+.edit-schedule-grid { display: grid; grid-template-columns: minmax(0,1.4fr) repeat(2,minmax(0,1fr)); gap: 10px; }
+.edit-schedule-grid > div { min-width: 0; }
+#modificaModal .edit-appointment-card label { display: block; font-size: 13px; text-transform: none; letter-spacing: 0; color: #374151; }
+#modificaModal .edit-appointment-card .input-apple { margin-top: 4px; padding: 11px 12px; border-radius: 12px; min-width: 0; }
+#modificaModal .edit-appointment-card .modal-footer { margin-top: 0; padding-top: 0; }
+#modificaModal .edit-appointment-card .btn-apple-primary { padding: 12px; font-size: 14px; border-radius: 12px; box-shadow: none; }
+#modificaModal .edit-appointment-card .btn-danger {
+    width: 100%; height: auto; min-height: 42px; padding: 11px 14px; margin: 0;
+    border: 1px solid #fecaca; border-radius: 12px; background: #ffffff; color: #b91c1c;
+    font-size: 13px; font-weight: 500; box-shadow: none; transform: none;
+}
+#modificaModal .edit-appointment-card .btn-danger:hover { background: #fef2f2; box-shadow: none; transform: none; }
+.appointment-email-status { padding: 14px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fbfcfd; }
+.appointment-email-status h4 { margin: 0; font-size: 13px; color: #374151; }
+.confirmation-person { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid #e5e7eb; }
+.confirmation-person > div { min-width: 0; }
+.confirmation-person strong { display: block; font-size: 13px; font-weight: 600; color: #1f2937; }
+.confirmation-person small { display: block; font-size: 11px; line-height: 1.5; color: #6b7280; margin-top: 3px; overflow-wrap: anywhere; }
+.confirmation-status { display: block; font-size: 12px; margin-top: 4px; color: #6b7280; }
+.status-sent { color: #166534; }
+.status-failed { color: #b91c1c; }
+.status-unknown, .status-outdated { color: #92400e; }
+.confirmation-retry { padding: 8px 10px; min-height: 36px; border: 1px solid #d1d5db; border-radius: 9px; background: #ffffff; color: #374151; font-size: 12px; cursor: pointer; flex-shrink: 0; }
+.confirmation-retry:hover { border-color: #21867a; color: #21867a; }
+.whatsapp-recipients { display: grid; gap: 8px; margin-top: 12px; }
+.whatsapp-person-link { display: block; padding: 12px; border: 1px solid #c5ddd8; border-radius: 10px; background: #f4faf8; color: #14564e; text-decoration: none; font-size: 13px; }
+.whatsapp-person-link:hover, .whatsapp-opened { background: #e5f2ee; border-color: #21867a; }
+.package-low, .cliente-dettaglio-page .pacchetto-restanti.package-low { display: inline-block; padding: 4px 8px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; color: #92400e; font-size: 12px; }
+.package-low-hint { margin: 7px 0; color: #92400e; font-size: 12px; }
+.package-remaining { font-size: 13px; color: #374151; }
+
+/* Client archive: scoped so other pages retain their layout. */
+.client-archive-page .app-container { padding: 24px clamp(16px,3vw,48px) 36px; }
+.client-archive-page .app-header { padding: 22px 24px; border-radius: 18px; margin-bottom: 18px; background: #182230; box-shadow: 0 8px 22px rgba(15,23,42,.1); gap: 16px; }
+.client-archive-page .app-header::after { display: none; }
+.client-archive-page .app-header h1 { font-size: 23px; letter-spacing: -.4px; }
+.archive-eyebrow { margin: 0 0 4px; font-size: 11px; color: #b8c2cf; }
+.client-archive-page .app-header .btn-primary { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.16); padding: 10px 14px; border-radius: 10px; font-size: 13px; box-shadow: none; transform: none; }
+.archive-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; padding: 16px; border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; }
+.client-archive-page .search-wrapper { display: flex; gap: 12px; align-items: center; flex: 1; margin: 0; min-width: 220px; }
+.client-archive-page #searchInput { width: 100%; min-width: 0; margin: 0; padding: 11px 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #f9fafb; font-size: 14px; }
+.archive-count { white-space: nowrap; color: #6b7280; font-size: 12px; }
+.client-archive-page .view-toggle { display: inline-flex; gap: 4px; margin: 0; padding: 4px; border: 1px solid #e5e7eb; border-radius: 10px; background: #f9fafb; box-shadow: none; }
+.client-archive-page .toggle-btn { padding: 8px 12px; border-radius: 7px; font-size: 12px; }
+.client-archive-page .toggle-btn.active { background: #e7f3f0; color: #14564e; box-shadow: none; }
+.client-archive-page .card-grid.grid-view { grid-template-columns: repeat(auto-fill,minmax(240px,1fr)); gap: 14px; }
+.client-archive-page .cliente-card, .client-archive-page .cliente-card:hover { padding: 18px; border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; box-shadow: 0 3px 12px rgba(15,23,42,.035); transform: none; }
+.client-archive-page .cliente-card:hover { border-color: #8fc5ba; }
+.archive-client-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; min-width: 0; }
+.archive-avatar { width: 36px; height: 36px; display: grid; place-items: center; flex-shrink: 0; background: #eaf4f1; color: #14564e; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.client-archive-page .cliente-card h3 { margin: 0; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.archive-arrow { margin-left: auto; color: #9ca3af; }
+.client-archive-page .cliente-card p { margin: 6px 0 0; color: #6b7280; font-size: 12px; overflow-wrap: anywhere; }
+.client-archive-page .cliente-card p strong { font-weight: 500; }
+.client-archive-page .card-grid.list-view { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.client-archive-page .card-grid.list-view .cliente-card { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,.8fr) minmax(0,1fr); align-items: center; gap: 14px; padding: 14px 18px; }
+.client-archive-page .list-view .archive-client-heading { margin: 0; }
+.archive-empty { padding: 24px; border: 1px dashed #d1d5db; border-radius: 14px; background: #fff; color: #6b7280; font-size: 14px; }
+
+@media (max-width: 760px) {
+    .client-archive-page .app-header { padding: 18px; }
+    .client-archive-page .card-grid.list-view .cliente-card { display: block; }
+    .client-archive-page .list-view .archive-client-heading { margin-bottom: 12px; }
+    .client-archive-page #searchInput, #modificaModal .edit-appointment-card .input-apple { font-size: 16px; }
+    .client-archive-page .search-wrapper { min-width: 100%; }
+    .edit-schedule-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .edit-schedule-grid > div:first-child { grid-column: 1 / -1; }
+    .confirmation-person { flex-wrap: wrap; }
+}
+@media (max-width: 900px) {
+    .gestionale-dashboard .header-right:has(.header-new-client:nth-child(2)) .header-logout { grid-column: 1 / -1; }
+}

@@ -5,6 +5,7 @@ import uuid
 import smtplib
 import ssl
 import base64
+from email_tracking import ConfirmationStore, confirmation_fingerprint, sending_is_recent
 from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for, g, has_request_context
 from supabase import create_client
 from dotenv import load_dotenv
@@ -82,6 +83,7 @@ app = Flask(
 )
 
 configure_logging()
+app.config["SHOW_PAYMENTS"] = (os.getenv("SHOW_PAYMENTS") or "false").strip().lower() in {"true", "1", "yes"}
 
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key-change-me")
 
@@ -139,7 +141,7 @@ def inject_static_file_helper():
             version = 0
         return url_for("static", filename=filename, v=version)
 
-    return {"static_file": static_file}
+    return {"static_file": static_file, "show_payments": app.config["SHOW_PAYMENTS"]}
 
 # ===============================
 # SIMPLE DASHBOARD CACHE
@@ -307,7 +309,32 @@ def recupera_dati_pacchetto(pacchetto_id):
     return None
 
 
-def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
+def prenota_conferma(appuntamento, cliente, allow_uncertain=False):
+    try:
+        return ConfirmationStore(supabase).claim(
+            appuntamento["id"], cliente["id"], confirmation_fingerprint(appuntamento, cliente.get("email")), allow_uncertain
+        )
+    except Exception:
+        app.logger.warning("Stato conferma non disponibile code=tracking_unavailable")
+        return {"acquired": False, "reason": "tracking_unavailable"}
+
+
+def registra_esito_conferma(appuntamento, cliente, claim, risultato):
+    try:
+        code = risultato.get("error_code")
+        status = "sent" if risultato["success"] else "unknown" if code in {"timeout", "delivery_unknown"} else "failed"
+        if code == "missing_email":
+            status = "missing_email"
+        ConfirmationStore(supabase).finish(
+            appuntamento["id"], cliente["id"], claim["attempt_id"], status, code, risultato.get("provider")
+        )
+        return True
+    except Exception:
+        app.logger.warning("Salvataggio stato conferma non riuscito code=tracking_unavailable")
+        return False
+
+
+def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id, allow_uncertain=False):
     """Invia le conferme dopo il salvataggio, senza rendere fallibile l'appuntamento."""
     esito = {
         "requested": True,
@@ -316,6 +343,7 @@ def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
         "failed_count": 0,
         "skipped_no_email_count": 0,
         "errors": [],
+        "skipped_already_sent_count": 0,
     }
     if not appuntamenti or not clienti_ids:
         return esito
@@ -346,7 +374,7 @@ def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
                 .single() \
                 .execute()
             cliente = cliente_response.data
-            if cliente and cliente.get("email"):
+            if cliente:
                 clienti_con_email.append(cliente)
             else:
                 esito["skipped_no_email_count"] += 1
@@ -362,6 +390,12 @@ def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id):
             appuntamento_di_coppia = "coppia" in servizio_nome.casefold()
 
             for cliente in clienti_con_email:
+                if not (cliente.get("email") or "").strip():
+                    esito["skipped_no_email_count"] += 1
+                    claim = prenota_conferma(appuntamento, cliente, allow_uncertain)
+                    if claim["acquired"]:
+                        registra_esito_conferma(appuntamento, cliente, claim, {"success": False, "error_code": "missing_email"})
+                    continue
                 info_seduta = None
                 if (
                     dati_pacchetto
@@ -404,6 +438,17 @@ ditommaso.massoterapia@gmail.com
                     nome_cliente, appuntamento.get("numero_seduta") if info_seduta else None
                 )
                 allegati = [(nome_allegato, calendario, "text", "calendar")]
+                claim = prenota_conferma(appuntamento, cliente, allow_uncertain)
+                if not claim["acquired"]:
+                    code = claim["reason"]
+                    if code == "already_sent":
+                        esito["skipped_already_sent_count"] += 1
+                    else:
+                        esito["failed_count"] += 1
+                        errore = {"code": code, "message": EMAIL_ERROR_MESSAGES[code]}
+                        if errore not in esito["errors"]:
+                            esito["errors"].append(errore)
+                    continue
                 esito["attempted_count"] += 1
                 risultato_email = invia_email_dettagliata(
                     cliente["email"],
@@ -411,6 +456,10 @@ ditommaso.massoterapia@gmail.com
                     corpo,
                     allegati=allegati
                 )
+                if not registra_esito_conferma(appuntamento, cliente, claim, risultato_email):
+                    errore = {"code": "tracking_unavailable", "message": EMAIL_ERROR_MESSAGES["tracking_unavailable"]}
+                    if errore not in esito["errors"]:
+                        esito["errors"].append(errore)
                 if risultato_email["success"]:
                     esito["sent_count"] += 1
                 else:
@@ -436,6 +485,10 @@ def invia_email(destinatario, oggetto, corpo, allegati=None):
 
 
 EMAIL_ERROR_MESSAGES = {
+    "tracking_unavailable": "Stato email non disponibile: verifica il collegamento al database prima di riprovare.",
+    "already_sent": "La conferma è già stata inviata a questo cliente.",
+    "send_in_progress": "Invio già in corso. Attendi prima di riprovare.",
+    "delivery_unknown": "Esito incerto: l'email potrebbe essere già partita. Verifica prima di reinviarla.",
     "invalid_provider": "Servizio email non valido: imposta EMAIL_PROVIDER su gmail o resend.",
     "missing_configuration": "Configurazione email incompleta per il servizio selezionato.",
     "authentication_failed": "Autenticazione email non riuscita: controlla le credenziali del servizio.",
@@ -486,6 +539,15 @@ def invia_email_dettagliata(destinatario, oggetto, corpo, allegati=None):
     if provider == "gmail":
         if not gmail_email or not gmail_app_password:
             return esito_invio_email(provider, "missing_configuration")
+        accepted = False
+        sending = False
+
+        def smtp_failure(code):
+            if accepted:
+                return esito_invio_email(provider)
+            if sending and code in {"timeout", "connection_failed", "network_unreachable", "send_failed", "tls_failed"}:
+                code = "delivery_unknown"
+            return esito_invio_email(provider, code)
         try:
             messaggio = EmailMessage()
             messaggio["From"] = formataddr((os.getenv("GMAIL_FROM_NAME", "Gestionale"), gmail_email))
@@ -503,25 +565,27 @@ def invia_email_dettagliata(destinatario, oggetto, corpo, allegati=None):
             context = ssl.create_default_context()
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=10) as smtp:
                 smtp.login(gmail_email, gmail_app_password)
+                sending = True
                 smtp.send_message(messaggio)
+                accepted = True
             return esito_invio_email(provider)
         except smtplib.SMTPAuthenticationError:
-            return esito_invio_email(provider, "authentication_failed")
+            return smtp_failure("authentication_failed")
         except smtplib.SMTPRecipientsRefused:
-            return esito_invio_email(provider, "recipient_rejected")
+            return smtp_failure("recipient_rejected")
         except smtplib.SMTPSenderRefused:
-            return esito_invio_email(provider, "sender_rejected")
+            return smtp_failure("sender_rejected")
         except ssl.SSLError:
-            return esito_invio_email(provider, "tls_failed")
+            return smtp_failure("tls_failed")
         except TimeoutError:
-            return esito_invio_email(provider, "timeout")
+            return smtp_failure("timeout")
         except smtplib.SMTPException:
-            return esito_invio_email(provider, "send_failed")
+            return smtp_failure("send_failed")
         except OSError as error:
             code = "network_unreachable" if error.errno in {101, 113} else "connection_failed"
-            return esito_invio_email(provider, code)
+            return smtp_failure(code)
         except Exception:
-            return esito_invio_email(provider, "send_failed")
+            return smtp_failure("send_failed")
 
     resend_api_key = (os.getenv("RESEND_API_KEY") or "").strip()
     if not resend_api_key:
@@ -585,7 +649,8 @@ def invia_email_dettagliata(destinatario, oggetto, corpo, allegati=None):
     except requests.exceptions.SSLError:
         return esito_invio_email(provider, "tls_failed")
     except requests.exceptions.ConnectionError:
-        return esito_invio_email(provider, "connection_failed")
+        # La connessione può cadere dopo l'accettazione da parte dell'API.
+        return esito_invio_email(provider, "delivery_unknown")
     except Exception:
         return esito_invio_email(provider, "send_failed")
 
@@ -1230,7 +1295,8 @@ def crea_appuntamento():
             "numero_seduta": numero_seduta_corrente,
             "scalato": bool(pacchetto_id),
             "note": note or None,
-            "stato": "occupato" if occupato else "prenotato"
+            "stato": "occupato" if occupato else "prenotato",
+            "email_conferme": {str(cid): {"status": "pending" if invia_conferma_email else "not_requested"} for cid in clienti_ids}
         }).execute()
 
         if not nuovo_appuntamento.data:
@@ -1290,6 +1356,105 @@ def crea_appuntamento():
         "created_ids": appuntamenti_creati_ids,
         "email_confirmation": email_confirmation
     })
+
+def appuntamento_e_destinatari(appuntamento_id):
+    rows = supabase.table("appuntamenti").select("*").eq("id", appuntamento_id).limit(1).execute().data or []
+    if not rows:
+        return None, []
+    appuntamento = rows[0]
+    links = supabase.table("appuntamenti_clienti").select("cliente_id").eq("appuntamento_id", appuntamento_id).execute().data or []
+    ids = list(dict.fromkeys(str(link["cliente_id"]) for link in links if link.get("cliente_id")))
+    if not ids and appuntamento.get("cliente_id"):
+        ids = [str(appuntamento["cliente_id"])]
+    return appuntamento, ids
+
+
+@app.route("/api/appuntamenti/<id>/conferme", methods=["GET", "POST"])
+@login_required
+def conferme_appuntamento(id):
+    appuntamento, ids = appuntamento_e_destinatari(id)
+    if not appuntamento:
+        return jsonify({"error": "Appuntamento non trovato"}), 404
+    if not isinstance(appuntamento.get("email_conferme"), dict):
+        return jsonify({"error": EMAIL_ERROR_MESSAGES["tracking_unavailable"]}), 503
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        cliente_id = str(data.get("cliente_id") or "")
+        if cliente_id not in ids:
+            return jsonify({"error": "Cliente non associato a questo appuntamento"}), 400
+        if appuntamento.get("stato") in {"annullato", "occupato"}:
+            return jsonify({"error": "Non puoi confermare un appuntamento annullato o uno slot occupato"}), 409
+        risultato = invia_conferme_appuntamento(
+            [appuntamento], [cliente_id], appuntamento.get("servizio_id"), data.get("conferma_esito_incerto") is True
+        )
+        return jsonify({"success": True, "email_confirmation": risultato})
+
+    destinatari = []
+    for cliente_id in ids:
+        rows = supabase.table("clienti").select("id,nome,cognome,email").eq("id", cliente_id).limit(1).execute().data or []
+        if not rows:
+            continue
+        cliente = rows[0]
+        stato = appuntamento["email_conferme"].get(cliente_id) or {}
+        status = stato.get("status", "untracked")
+        if status == "sending" and not sending_is_recent(stato):
+            status = "unknown"
+        if status == "sent" and stato.get("fingerprint") != confirmation_fingerprint(appuntamento, cliente.get("email")):
+            status = "outdated"
+        destinatari.append({
+            "cliente_id": cliente_id,
+            "nome": " ".join(str(cliente.get(key) or "") for key in ("nome", "cognome")).strip(),
+            "has_email": bool((cliente.get("email") or "").strip()),
+            "status": status,
+            "updated_at": stato.get("updated_at"),
+            "message": EMAIL_ERROR_MESSAGES.get(stato.get("error_code")),
+            "can_send": bool((cliente.get("email") or "").strip()) and status not in {"sent", "sending"}
+                and appuntamento.get("stato") not in {"annullato", "occupato"},
+        })
+    return jsonify({"destinatari": destinatari})
+
+
+@app.route("/api/appuntamenti/conflitti", methods=["POST"])
+@login_required
+def conflitti_appuntamenti():
+    data = request.get_json(silent=True) or {}
+    slots = data.get("slots")
+    if not isinstance(slots, list) or not 1 <= len(slots) <= 80:
+        return jsonify({"error": "Specifica da 1 a 80 intervalli da verificare"}), 400
+    intervalli = []
+    try:
+        for slot in slots:
+            start = datetime.fromisoformat(normalize_datetime_local(slot.get("start_datetime")))
+            end = datetime.fromisoformat(normalize_datetime_local(slot.get("end_datetime")))
+            if end <= start:
+                raise ValueError()
+            intervalli.append((start, end))
+    except (ValueError, TypeError, AttributeError):
+        return jsonify({"error": "Intervallo non valido"}), 400
+    first = min(start for start, _ in intervalli).isoformat()
+    last = max(end for _, end in intervalli).isoformat()
+    esistenti = []
+    offset = 0
+    while True:
+        page = supabase.table("appuntamenti").select("id,start_datetime,end_datetime,stato") \
+            .lt("start_datetime", last).gt("end_datetime", first).order("id").range(offset, offset + 999).execute().data or []
+        esistenti.extend(page)
+        if len(page) < 1000:
+            break
+        offset += 1000
+    conflicts = set()
+    for appo in esistenti:
+        if str(appo.get("id")) == str(data.get("ignore_id")) or appo.get("stato") == "annullato":
+            continue
+        start = datetime.fromisoformat(normalize_datetime_local(appo["start_datetime"]))
+        end = datetime.fromisoformat(normalize_datetime_local(appo["end_datetime"]))
+        if any(start < to and end > frm for frm, to in intervalli):
+            conflicts.add(str(appo["id"]))
+    interni = sum(start1 < end2 and end1 > start2
+                  for i, (start1, end1) in enumerate(intervalli) for start2, end2 in intervalli[i + 1:]
+                  if (start1, end1) != (start2, end2))
+    return jsonify({"count": len(conflicts), "internal_count": interni})
+
 
 @app.route("/api/appuntamenti/<id>", methods=["PUT"])
 @login_required
