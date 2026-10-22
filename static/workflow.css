@@ -1,3 +1,13 @@
+/* Inline client emails in appointment creation. */
+#eventoModal .event-missing-emails[hidden] { display: none !important; }
+#eventoModal .event-missing-emails { margin-top: 14px; padding-top: 12px; border-top: 1px solid #dfe7e5; }
+#eventoModal .event-missing-emails p { margin: 0 0 10px; }
+#eventoModal .event-missing-emails p:last-child { margin: 8px 0 0; }
+#eventoModal .event-missing-email-fields { display: grid; gap: 12px; }
+#eventoModal .event-missing-email-field label { display: block; margin-bottom: 5px; font-size: 12px; font-weight: 500; text-transform: none; letter-spacing: 0; }
+#eventoModal .event-missing-email-field .input-apple { margin: 0; background: #fff; }
+#eventoModal .event-missing-email-field input[aria-invalid="true"] { border-color: #dc2626; }
+
 /* Appointment editing and per-person confirmation actions. */
 #modificaModal .edit-appointment-card {
     width: min(620px, calc(100% - 28px));

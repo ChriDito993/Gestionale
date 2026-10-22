@@ -59,6 +59,24 @@ consegna garantita nella casella del destinatario.
 
 ## Stato persistente e reinvio individuale
 
+Durante **Crea appuntamento**, se una persona selezionata non ha un'email,
+compare un campo sotto la spunta di conferma. Per una coppia i campi sono distinti
+e riportano il nome della persona. Compilandoli e premendo **Salva appuntamento**,
+gli indirizzi validi vengono salvati nelle rispettive anagrafiche prima di creare
+l'appuntamento e inviare le eventuali conferme con ICS.
+
+I campi sono facoltativi: un campo vuoto non modifica l'anagrafica. È possibile
+salvare l'indirizzo anche senza spuntare l'invio, nel qual caso non parte alcuna
+conferma. Chiudere il box o annullare l'avviso di sovrapposizione non salva le email.
+Le email già presenti non vengono sovrascritte da questa aggiunta rapida, nemmeno
+se un altro operatore le inserisce durante il salvataggio.
+
+L'aggiornamento delle anagrafiche e la creazione dell'appuntamento non sono una
+singola transazione: in caso di errore, gli indirizzi già salvati restano in
+anagrafica. Il box conserva quelli ancora da salvare per il nuovo tentativo.
+Nessuna conferma viene avviata se prima fallisce il salvataggio di un indirizzo
+compilato. Le protezioni RLS e il provider email non cambiano.
+
 Nel box **Modifica appuntamento**, la sezione **Conferme email** mostra l'ultimo
 esito per ciascuna persona, anche per gli appuntamenti di coppia. Si può inviare
 la conferma a un solo destinatario senza ricreare l'appuntamento. L'allegato ICS

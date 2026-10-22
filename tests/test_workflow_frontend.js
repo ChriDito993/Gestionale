@@ -23,13 +23,23 @@ class Element {
     removeAttribute(name) { delete this.attributes[name]; }
     addEventListener(name, listener) { this.listeners[name] = listener; }
     querySelectorAll() { return []; }
+    querySelector() { return null; }
+    focus() { this.focused = true; }
 }
 
 function mainContext() {
     const nodes = {};
     const document = {
-        getElementById: id => nodes[id] || null, querySelectorAll: () => [], addEventListener() {},
-        createElement: tag => new Element(tag), createTextNode: text => ({ textContent: text }),
+        getElementById: id => nodes[id] || null,
+        querySelectorAll: selector => selector === '#eventoEmailMancantiCampi input'
+            ? (nodes.eventoEmailMancantiCampi?.children || []).flatMap(row => row.children.filter(child => child.tag === 'input')) : [],
+        addEventListener() {},
+        createElement: tag => {
+            const element = new Element(tag);
+            Object.defineProperty(element, 'id', { get() { return this._id; }, set(value) { this._id = value; nodes[value] = this; } });
+            return element;
+        },
+        createTextNode: text => ({ textContent: text }),
     };
     const context = vm.createContext({ document, window: { addEventListener() {}, confirm: () => false }, console,
         requestAnimationFrame: fn => fn(), setTimeout, clearTimeout, URLSearchParams });
@@ -126,4 +136,159 @@ test('Closing a package requires confirmation before form submission', () => {
     assert.equal(context.confermaChiusuraPacchetto(form), false);
     context.window.confirm = () => true;
     assert.equal(context.confermaChiusuraPacchetto(form), true);
+});
+
+function emailBookingContext() {
+    const { context, nodes } = mainContext();
+    for (const id of ['servizioSelect', 'pacchettoSelect', 'eventoRipetiSettimanale', 'eventoNumeroOccorrenze',
+        'eventoData', 'eventoOraInizio', 'eventoOraFine', 'eventoNote', 'eventoOccupato', 'eventoInviaConfermaEmail',
+        'btnSalvaEvento', 'eventoEmailMancanti', 'eventoEmailMancantiCampi']) nodes[id] = new Element();
+    nodes.servizioSelect.value = '20'; nodes.eventoData.value = '2026-11-11';
+    nodes.eventoOraInizio.value = '10:00'; nodes.eventoOraFine.value = '11:00';
+    context.chiudiModal = () => {};
+    context.aggiornaClientiSelezionati = () => {};
+    context.console = { error() {} };
+    vm.runInContext('calendar = {refetchEvents() {}};', context);
+    return { context, nodes };
+}
+
+test('Missing emails render per person, preserve drafts and never appear for existing addresses', () => {
+    const { context, nodes } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101", nome: "Mario"}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes.eventoEmailMancanti.hidden, false);
+    const input = nodes['eventoEmailCliente-101'];
+    assert.equal(input.type, 'email');
+    input.value = 'mario@example.com'; input.listeners.input();
+    vm.runInContext('clientiSelezionati.push({id: "202", nome: "Anna"});', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes['eventoEmailCliente-101'].value, 'mario@example.com');
+    assert.equal(nodes.eventoEmailMancantiCampi.children.length, 2);
+    assert.match(nodes.eventoEmailMancantiCampi.children[1].children[0].textContent, /Anna/);
+    vm.runInContext('clientiSelezionati = [{id: "202", nome: "Anna", email: "anna@example.com"}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes.eventoEmailMancanti.hidden, true);
+    assert.equal(vm.runInContext('emailNuovoEvento.has("101")', context), false);
+});
+
+test('Both emails are saved to the right profiles before creating and confirming a couple appointment', async () => {
+    const { context, nodes } = emailBookingContext();
+    nodes.eventoInviaConfermaEmail.checked = true;
+    vm.runInContext('clientiSelezionati = [{id: "101", nome: "Mario"}, {id: "202", nome: "Anna"}]; tuttiClienti = clientiSelezionati.map(c => ({...c})); emailNuovoEvento.set("101", " mario@example.com "); emailNuovoEvento.set("202", "anna@example.com");', context);
+    const calls = [];
+    context.fetchJsonOrThrow = async (url, options) => {
+        const body = JSON.parse(options.body); calls.push({ url, body });
+        if (url.endsWith('/conflitti')) return { count: 0 };
+        if (url.endsWith('/email')) return { id: url.split('/')[3], email: body.email };
+        return { created_count: 1 };
+    };
+    await context.salvaEvento();
+    assert.deepEqual(calls.map(call => call.url), ['/api/appuntamenti/conflitti', '/api/clienti/101/email', '/api/clienti/202/email', '/api/appuntamenti']);
+    assert.equal(calls[1].body.email, 'mario@example.com');
+    assert.equal(calls[2].body.email, 'anna@example.com');
+    assert.deepEqual(calls[3].body.clienti_ids, ['101', '202']);
+    assert.equal(calls[3].body.invia_conferma_email, true);
+    assert.equal(vm.runInContext('tuttiClienti[0].email', context), 'mario@example.com');
+    assert.equal(vm.runInContext('tuttiClienti[1].email', context), 'anna@example.com');
+    assert.equal(nodes.btnSalvaEvento.disabled, false);
+});
+
+test('Invalid email blocks all writes and focuses the correct field', async () => {
+    const { context, nodes } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101", nome: "Mario"}]; emailNuovoEvento.set("101", "non-valida");', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    context.fetchJsonOrThrow = () => assert.fail('No request expected');
+    await context.salvaEvento();
+    assert.equal(nodes['eventoEmailCliente-101'].getAttribute('aria-invalid'), 'true');
+    assert.equal(nodes['eventoEmailCliente-101'].focused, true);
+    assert.equal(nodes.btnSalvaEvento.disabled, false);
+});
+
+test('Declining overlap warning does not save an email or create an appointment', async () => {
+    const { context } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101"}]; emailNuovoEvento.set("101", "mario@example.com");', context);
+    const calls = [];
+    context.fetchJsonOrThrow = async url => { calls.push(url); return { count: 1 }; };
+    await context.salvaEvento();
+    assert.deepEqual(calls, ['/api/appuntamenti/conflitti']);
+});
+
+test('A partial profile-save failure stops booking and retries only the still missing email', async () => {
+    const { context, nodes } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101", nome: "Mario"}, {id: "202", nome: "Anna"}]; emailNuovoEvento.set("101", "mario@example.com"); emailNuovoEvento.set("202", "anna@example.com");', context);
+    const calls = [];
+    let fail = true;
+    context.fetchJsonOrThrow = async (url, options) => {
+        calls.push(url);
+        if (url.endsWith('/conflitti')) return { count: 0 };
+        if (url.endsWith('/202/email') && fail) throw new Error('Errore di rete');
+        if (url.endsWith('/email')) return { id: url.split('/')[3], email: JSON.parse(options.body).email };
+        return { created_count: 1 };
+    };
+    await context.salvaEvento();
+    assert.equal(calls.includes('/api/appuntamenti'), false);
+    assert.equal(vm.runInContext('clientiSelezionati[0].email', context), 'mario@example.com');
+    assert.equal(nodes['eventoEmailCliente-202'].value, 'anna@example.com');
+    assert.equal(nodes.btnSalvaEvento.disabled, false);
+    fail = false;
+    await context.salvaEvento();
+    assert.equal(calls.filter(url => url.endsWith('/101/email')).length, 1);
+    assert.equal(calls.filter(url => url.endsWith('/202/email')).length, 2);
+    assert.equal(calls.filter(url => url === '/api/appuntamenti').length, 1);
+});
+
+test('Email can be saved without sending a confirmation, while empty inputs remain optional', async () => {
+    const { context } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101"}, {id: "202"}]; emailNuovoEvento.set("101", "mario@example.com");', context);
+    const calls = [];
+    context.fetchJsonOrThrow = async (url, options) => {
+        calls.push({ url, body: JSON.parse(options.body) });
+        if (url.endsWith('/conflitti')) return { count: 0 };
+        if (url.endsWith('/email')) return { id: '101', email: 'mario@example.com' };
+        return { created_count: 1 };
+    };
+    await context.salvaEvento();
+    assert.equal(calls.filter(call => call.url.endsWith('/email')).length, 1);
+    assert.equal(calls.at(-1).body.invia_conferma_email, false);
+});
+
+test('Occupied slots ignore email drafts entirely', async () => {
+    const { context, nodes } = emailBookingContext();
+    nodes.eventoOccupato.checked = true;
+    nodes.eventoInviaConfermaEmail.checked = true;
+    vm.runInContext('clientiSelezionati = [{id: "101"}]; emailNuovoEvento.set("101", "non-valida");', context);
+    const calls = [];
+    context.fetchJsonOrThrow = async (url, options) => { calls.push({ url, body: JSON.parse(options.body) }); return { count: 0 }; };
+    await context.salvaEvento();
+    assert.equal(calls.some(call => call.url.endsWith('/email')), false);
+    assert.deepEqual(calls.at(-1).body.clienti_ids, []);
+    assert.equal(calls.at(-1).body.invia_conferma_email, false);
+});
+
+test('Reopening the appointment dialog clears unsaved email drafts', () => {
+    const { context, nodes } = emailBookingContext();
+    nodes.eventoModal = new Element();
+    for (const fn of ['inizializzaRicercaClienti', 'sincronizzaCampiDataOraNuovoEvento', 'resetRicorrenzaEvento', 'resetSlotPersonalizzati', 'resetStatoOccupato']) context[fn] = () => {};
+    vm.runInContext('selectedStart = "2026-11-11T10:00:00"; selectedEnd = "2026-11-11T11:00:00"; emailNuovoEvento.set("101", "non-salvata@example.com");', context);
+    context.apriModal();
+    assert.equal(vm.runInContext('emailNuovoEvento.size', context), 0);
+});
+
+test('Browser-autofilled emails are preserved and saved even without an input event', async () => {
+    const { context, nodes } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101", nome: "Mario"}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    nodes['eventoEmailCliente-101'].value = ' mario@example.com ';
+    vm.runInContext('clientiSelezionati.push({id: "202", nome: "Anna", email: "anna@example.com"});', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes['eventoEmailCliente-101'].value.trim(), 'mario@example.com');
+    const calls = [];
+    context.fetchJsonOrThrow = async (url, options) => {
+        calls.push({ url, body: JSON.parse(options.body) });
+        if (url.endsWith('/conflitti')) return { count: 0 };
+        if (url.endsWith('/email')) return { id: '101', email: 'mario@example.com' };
+        return { created_count: 1 };
+    };
+    await context.salvaEvento();
+    assert.equal(calls.find(call => call.url.endsWith('/email')).body.email, 'mario@example.com');
 });

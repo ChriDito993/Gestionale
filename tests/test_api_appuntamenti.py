@@ -48,6 +48,10 @@ class FakeQuery:
         self.filters.append(("eq", column, value))
         return self
 
+    def is_(self, column, value):
+        self.filters.append(("is", column, value))
+        return self
+
     def gte(self, column, value):
         self.filters.append(("gte", column, value))
         return self
@@ -92,6 +96,11 @@ class FakeQuery:
         if self.table_name == "pacchetti_cliente":
             return self._exec_pacchetti_cliente()
         if self.table_name == "clienti":
+            if self.operation == "update":
+                rows = self._filter_rows(list(self.fake_supabase.clienti.values()))
+                for row in rows:
+                    row.update(self.payload or {})
+                return FakeResponse([dict(row) for row in rows])
             return self._exec_readonly(self.fake_supabase.clienti)
         if self.table_name == "servizi":
             return self._exec_readonly(self.fake_supabase.servizi)
@@ -109,6 +118,10 @@ class FakeQuery:
                     else:
                         matches = str(row_value) == str(value)
                     if not matches:
+                        include = False
+                        break
+                elif operator == "is":
+                    if value == "null" and row_value is not None:
                         include = False
                         break
                 elif operator == "gte":
@@ -1309,3 +1322,76 @@ def test_hidden_payments_page_is_still_available(authed_client, monkeypatch):
     response = client.get("/pagamenti")
     assert response.status_code == 200
     assert b"Resoconto Pagamenti" in response.data
+
+
+@pytest.mark.parametrize("previous", [None, "", "   "])
+def test_add_missing_email_preserves_other_customer_fields(authed_client, previous):
+    client, db = authed_client
+    db.clienti["101"] = {"id": "101", "nome": "Mario", "cognome": "Rossi", "telefono": "393331111111", "email": previous}
+    response = client.put("/api/clienti/101/email", json={"email": " mario@example.com ", "nome": "IGNORATO"})
+    assert response.status_code == 200
+    assert response.get_json() == {"id": "101", "email": "mario@example.com"}
+    assert db.clienti["101"] == {"id": "101", "nome": "Mario", "cognome": "Rossi", "telefono": "393331111111", "email": "mario@example.com"}
+    assert len(db.appuntamenti) == 0
+
+
+@pytest.mark.parametrize("email", [None, "", "senza-chiocciola", "a@", "a@example", "a b@example.com", "a@example.com\r\nBcc:other@example.com", 123, ["a@example.com"], "a" * 250 + "@example.com"])
+def test_add_missing_email_rejects_invalid_input_without_writes(authed_client, email):
+    client, db = authed_client
+    assert client.put("/api/clienti/101/email", json={"email": email}).status_code == 400
+    assert db.calls == []
+
+
+def test_add_missing_email_requires_login(unauth_client):
+    assert unauth_client.put("/api/clienti/101/email", json={"email": "mario@example.com"}).status_code == 302
+
+
+def test_add_missing_email_requires_existing_customer(authed_client):
+    client, _db = authed_client
+    assert client.put("/api/clienti/101/email", json={"email": "mario@example.com"}).status_code == 404
+
+
+def test_add_missing_email_never_replaces_existing_address(authed_client):
+    client, db = authed_client
+    db.clienti["101"] = {"id": "101", "email": "gia-presente@example.com"}
+    assert client.put("/api/clienti/101/email", json={"email": "nuova@example.com"}).status_code == 409
+    assert db.clienti["101"]["email"] == "gia-presente@example.com"
+    response = client.put("/api/clienti/101/email", json={"email": "GIA-PRESENTE@example.com"})
+    assert response.status_code == 200
+    assert all(call["operation"] == "select" for call in db.calls)
+
+
+def test_add_missing_email_detects_concurrent_change(authed_client, monkeypatch):
+    client, db = authed_client
+    db.clienti["101"] = {"id": "101", "email": None}
+    original = FakeQuery.execute
+    def concurrently_updated(query):
+        if query.table_name == "clienti" and query.operation == "update":
+            db.clienti["101"]["email"] = "altro-operatore@example.com"
+        return original(query)
+    monkeypatch.setattr(FakeQuery, "execute", concurrently_updated)
+    assert client.put("/api/clienti/101/email", json={"email": "nuova@example.com"}).status_code == 409
+    assert db.clienti["101"]["email"] == "altro-operatore@example.com"
+
+
+def test_new_profile_emails_are_used_for_couple_confirmation_with_ics(authed_client, monkeypatch):
+    client, db = authed_client
+    db.clienti.update({"101": {"id": "101", "nome": "Mario", "email": None}, "202": {"id": "202", "nome": "Anna", "email": ""}})
+    db.servizi["20"] = {"id": "20", "nome": "Ginnastica di coppia"}
+    sent = []
+    def send(email, subject, body, allegati=None):
+        sent.append((email, allegati))
+        return {"success": True, "provider": "gmail"}
+    monkeypatch.setattr(app_module, "invia_email_dettagliata", send)
+    for id, email in (("101", "mario@example.com"), ("202", "anna@example.com")):
+        assert client.put("/api/clienti/" + id + "/email", json={"email": email}).status_code == 200
+    response = client.post("/api/appuntamenti", json={
+        "servizio_id": "20", "clienti_ids": ["101", "202"], "invia_conferma_email": True,
+        "start_datetime": "2026-11-11T10:00:00", "end_datetime": "2026-11-11T11:00:00",
+    })
+    assert response.status_code == 200
+    assert response.get_json()["email_confirmation"]["sent_count"] == 2
+    assert [email for email, _ in sent] == ["mario@example.com", "anna@example.com"]
+    assert all(attachments[0][0].endswith(".ics") for _, attachments in sent)
+    assert len(db.appuntamenti) == 1
+    assert len(db.appuntamenti_clienti) == 2

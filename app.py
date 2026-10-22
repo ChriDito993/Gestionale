@@ -873,6 +873,35 @@ def aggiorna_cliente(cliente_id):
 
     return jsonify(response.data)
 
+# Aggiunta rapida dalla creazione appuntamento: mai sovrascrivere un'email esistente.
+@app.route("/api/clienti/<cliente_id>/email", methods=["PUT"])
+@login_required
+def aggiungi_email_cliente(cliente_id):
+    data = request.get_json(silent=True)
+    email = data.get("email") if isinstance(data, dict) else None
+    if not isinstance(email, str):
+        return jsonify({"error": "Inserisci un indirizzo email valido"}), 400
+    email = email.strip()
+    if len(email) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        return jsonify({"error": "Inserisci un indirizzo email valido"}), 400
+
+    rows = supabase.table("clienti").select("id,email").eq("id", cliente_id).limit(1).execute().data or []
+    if not rows:
+        return jsonify({"error": "Cliente non trovato"}), 404
+    precedente = rows[0].get("email")
+    if precedente and precedente.strip():
+        if precedente.strip().casefold() == email.casefold():
+            return jsonify({"id": rows[0]["id"], "email": precedente.strip()})
+        return jsonify({"error": "Il cliente ha già un'email in anagrafica. Ricarica i clienti prima di riprovare."}), 409
+
+    query = supabase.table("clienti").update({"email": email}).eq("id", cliente_id)
+    # Compare-and-swap: un altro operatore potrebbe averla aggiunta nel frattempo.
+    query = query.is_("email", "null") if precedente is None else query.eq("email", precedente)
+    aggiornati = query.execute().data or []
+    if not aggiornati:
+        return jsonify({"error": "L'anagrafica è cambiata. Ricarica i clienti prima di riprovare."}), 409
+    return jsonify({"id": aggiornati[0]["id"], "email": aggiornati[0]["email"]})
+
 # DELETE route per eliminare cliente
 @app.route("/api/clienti/<cliente_id>", methods=["DELETE"])
 @login_required

@@ -6,6 +6,7 @@ let serviziData = [];
 let tipiPacchettoData = [];
 let tuttiClienti = [];
 let clientiSelezionati = [];
+let emailNuovoEvento = new Map();
 const MOBILE_BREAKPOINT = 900;
 const DEFAULT_APPOINTMENT_MINUTES = 60;
 const SERVIZIO_COLORI = {
@@ -1386,7 +1387,8 @@ function aggiornaRiepilogoNuovoEvento() {
     if (!ripeti && dateAggiuntive > 0) riepilogo.textContent = `${totale} ${tipo} · orari personalizzati`;
 
     const inviaEmail = !!document.getElementById("eventoInviaConfermaEmail")?.checked;
-    const conEmail = clientiSelezionati.filter(cliente => String(cliente.email || "").trim()).length;
+    const conEmail = clientiSelezionati.filter(cliente => String(cliente.email || "").trim()
+        || emailValidaNuovoEvento(leggiEmailNuovoEvento(cliente))).length;
     const statoEmail = document.getElementById("eventoRiepilogoEmail");
     if (statoEmail) {
         statoEmail.textContent = occupato ? "Nessun cliente associato"
@@ -1399,8 +1401,8 @@ function aggiornaRiepilogoNuovoEvento() {
     if (hintEmail) {
         const calendario = "Include il file per aggiungere la seduta al calendario.";
         hintEmail.textContent = !clientiSelezionati.length ? calendario
-            : !conEmail ? "I clienti selezionati non hanno un indirizzo email in anagrafica."
-            : conEmail < clientiSelezionati.length ? `Solo ${conEmail} dei clienti selezionati ha un indirizzo email. ${calendario}`
+            : !conEmail ? "Puoi aggiungere qui sotto gli indirizzi email mancanti."
+            : conEmail < clientiSelezionati.length ? `Indirizzo disponibile per ${conEmail} dei clienti selezionati. ${calendario}`
             : clientiSelezionati.length === 2 ? `La riceveranno entrambe le persone. ${calendario}` : calendario;
     }
 
@@ -1415,6 +1417,87 @@ function aggiornaRiepilogoNuovoEvento() {
     }
 }
 
+function emailValidaNuovoEvento(value) {
+    const email = String(value || '').trim();
+    return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function leggiEmailNuovoEvento(cliente) {
+    const id = String(cliente.id);
+    return String(document.getElementById('eventoEmailCliente-' + id)?.value ?? emailNuovoEvento.get(id) ?? '').trim();
+}
+
+function aggiornaCampiEmailNuovoEvento() {
+    const box = document.getElementById('eventoEmailMancanti');
+    const fields = document.getElementById('eventoEmailMancantiCampi');
+    if (!box || !fields) return;
+    for (const cliente of clientiSelezionati) {
+        const id = String(cliente.id);
+        if (String(cliente.email || '').trim()) emailNuovoEvento.delete(id);
+        else {
+            const input = document.getElementById('eventoEmailCliente-' + id);
+            if (input) emailNuovoEvento.set(id, input.value);
+        }
+    }
+    const selezionati = new Set(clientiSelezionati.map(cliente => String(cliente.id)));
+    for (const id of emailNuovoEvento.keys()) if (!selezionati.has(id)) emailNuovoEvento.delete(id);
+    const mancanti = clientiSelezionati.filter(cliente => !String(cliente.email || '').trim());
+    box.hidden = mancanti.length === 0;
+    fields.replaceChildren();
+    mancanti.forEach(cliente => {
+        const id = String(cliente.id);
+        const row = document.createElement('div'); row.className = 'event-missing-email-field';
+        const label = document.createElement('label');
+        label.htmlFor = 'eventoEmailCliente-' + id;
+        label.textContent = 'Email · ' + ([cliente.nome, cliente.cognome].filter(Boolean).join(' ') || 'Cliente');
+        const input = document.createElement('input');
+        input.id = label.htmlFor; input.type = 'email'; input.inputMode = 'email';
+        input.autocomplete = 'email'; input.maxLength = 254; input.className = 'input-apple';
+        input.placeholder = 'nome@esempio.it'; input.value = emailNuovoEvento.get(id) || '';
+        input.setAttribute('aria-describedby', 'eventoEmailSalvataggioHint');
+        const aggiornaBozza = () => {
+            emailNuovoEvento.set(id, input.value);
+            input.removeAttribute('aria-invalid');
+            aggiornaRiepilogoNuovoEvento();
+        };
+        input.addEventListener('input', aggiornaBozza);
+        input.addEventListener('change', aggiornaBozza);
+        row.append(label, input); fields.appendChild(row);
+    });
+}
+
+function raccogliEmailNuovoEvento(clienti) {
+    const emails = [];
+    for (const cliente of clienti) {
+        if (String(cliente.email || '').trim()) continue;
+        const id = String(cliente.id);
+        const email = leggiEmailNuovoEvento(cliente);
+        if (!email) continue;
+        if (!emailValidaNuovoEvento(email)) {
+            const input = document.getElementById('eventoEmailCliente-' + id);
+            input?.setAttribute('aria-invalid', 'true'); input?.focus();
+            mostraToast('Controlla l’indirizzo email di ' + [cliente.nome, cliente.cognome].filter(Boolean).join(' '), 'warning');
+            return null;
+        }
+        emails.push({ cliente, email });
+    }
+    return emails;
+}
+
+async function salvaEmailClienteNuovoEvento({ cliente, email }) {
+    const aggiornato = await fetchJsonOrThrow('/api/clienti/' + encodeURIComponent(cliente.id) + '/email', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
+    }, 'Impossibile salvare l’email del cliente. L’appuntamento non è stato ancora creato.');
+    if (String(aggiornato?.id) !== String(cliente.id) || !emailValidaNuovoEvento(aggiornato?.email)) {
+        throw new Error('Salvataggio dell’email non confermato. Verifica l’anagrafica prima di riprovare.');
+    }
+    cliente.email = aggiornato.email;
+    for (const persona of [...tuttiClienti, ...clientiSelezionati]) {
+        if (String(persona.id) === String(cliente.id)) persona.email = aggiornato.email;
+    }
+    emailNuovoEvento.delete(String(cliente.id));
+}
+
 function inizializzaRiepilogoNuovoEvento() {
     const modal = document.getElementById("eventoModal");
     if (!modal || modal.dataset.summaryBound === "1") return;
@@ -1425,6 +1508,7 @@ function inizializzaRiepilogoNuovoEvento() {
 
 function apriModal() {
     clientiSelezionati = [];
+    emailNuovoEvento.clear();
 
     if (!selectedStart || !selectedEnd) {
         impostaSelezioneDaData(calcolaStartDefaultPerMobile());
@@ -1571,6 +1655,7 @@ async function salvaEvento() {
     const note = document.getElementById("eventoNote")?.value.trim() || "";
     const occupato = !!document.getElementById("eventoOccupato")?.checked;
     const inviaConfermaEmail = !!document.getElementById("eventoInviaConfermaEmail")?.checked;
+    const clientiEvento = clientiSelezionati.slice();
 
     if (salvaBtn?.disabled) return;
 
@@ -1596,7 +1681,7 @@ async function salvaEvento() {
     selectedStart = formatDateTimeForApi(startLocal);
     selectedEnd = formatDateTimeForApi(endLocal);
 
-    if ((!occupato && clientiSelezionati.length === 0) || !servizioId) {
+    if ((!occupato && clientiEvento.length === 0) || !servizioId) {
         mostraToast(
             occupato ? "Seleziona un servizio" : "Seleziona almeno un cliente e un servizio",
             "warning"
@@ -1619,6 +1704,9 @@ async function salvaEvento() {
         return;
     }
 
+    const emailDaSalvare = occupato ? [] : raccogliEmailNuovoEvento(clientiEvento);
+    if (emailDaSalvare === null) return;
+
     let slotsPersonalizzatiPayload = null;
     if (customSlots.length > 0) {
         slotsPersonalizzatiPayload = [
@@ -1634,6 +1722,8 @@ async function salvaEvento() {
     }
 
     setButtonLoading(salvaBtn, true, { label: "Salvataggio..." });
+    let emailSalvate = 0;
+    document.querySelectorAll('#eventoEmailMancantiCampi input').forEach(input => { input.disabled = true; });
 
     try {
         const slotsDaVerificare = slotsPersonalizzatiPayload || Array.from({ length: occorrenze }, (_, index) => {
@@ -1642,11 +1732,15 @@ async function salvaEvento() {
             return { start_datetime: formatDateTimeForApi(start), end_datetime: formatDateTimeForApi(end) };
         });
         if (!await confermaSovrapposizioni(slotsDaVerificare)) return;
+        for (const voce of emailDaSalvare) {
+            await salvaEmailClienteNuovoEvento(voce);
+            emailSalvate++;
+        }
         const payload = await fetchJsonOrThrow('/api/appuntamenti', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                clienti_ids: occupato ? [] : clientiSelezionati.map(c => c.id),
+                clienti_ids: occupato ? [] : clientiEvento.map(c => c.id),
                 servizio_id: servizioId,
                 pacchetto_cliente_id: occupato ? null : pacchettoId,
                 occupato,
@@ -1667,16 +1761,19 @@ async function salvaEvento() {
         aggiornaClientiSelezionati();
 
         const createdCount = Number.parseInt(payload?.created_count, 10);
-        if (Number.isFinite(createdCount) && createdCount > 1) {
-            mostraToast(`Creati ${createdCount} appuntamenti.`, "success");
-        } else {
-            mostraToast("Appuntamento creato con successo.", "success");
-        }
+        const testoAppuntamento = Number.isFinite(createdCount) && createdCount > 1
+            ? `Creati ${createdCount} appuntamenti.` : 'Appuntamento creato con successo.';
+        const testoEmail = emailSalvate ? (emailSalvate === 1 ? ' Email salvata in anagrafica.' : ' Email salvate nelle anagrafiche.') : '';
+        mostraToast(testoAppuntamento + testoEmail, 'success');
         mostraEsitoEmailConferma(payload?.email_confirmation);
     } catch (error) {
         console.error("Errore:", error);
-        mostraToast(error.message || "Errore nel creare appuntamento", "error");
+        const messaggio = (error.message || 'Errore nel creare appuntamento')
+            + (emailSalvate ? ' Gli indirizzi già salvati restano in anagrafica.' : '');
+        mostraToast(messaggio, 'error');
     } finally {
+        aggiornaCampiEmailNuovoEvento();
+        aggiornaRiepilogoNuovoEvento();
         setButtonLoading(salvaBtn, false);
     }
 }
@@ -2254,6 +2351,7 @@ function aggiornaClientiSelezionati() {
 
         selezionatiDiv.appendChild(badge);
     });
+    aggiornaCampiEmailNuovoEvento();
     aggiornaRiepilogoNuovoEvento();
 
     if (clientiSelezionati.length > 0) {
