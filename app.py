@@ -6,6 +6,7 @@ import smtplib
 import ssl
 import base64
 from email_tracking import ConfirmationStore, confirmation_fingerprint, sending_is_recent
+from package_accounting import PackageAccountingError, package_operation
 from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for, g, has_request_context
 from supabase import create_client
 from dotenv import load_dotenv
@@ -193,12 +194,17 @@ def invalidate_dashboard_caches():
 
 
 def assegna_pacchetto_a_cliente(cliente_id, tipo_pacchetto_id):
-    return supabase.table("pacchetti_cliente").insert({
-        "cliente_id": cliente_id,
-        "tipo_pacchetto_id": tipo_pacchetto_id,
-        "sedute_effettuate": 0,
-        "stato": "attivo"
-    }).execute()
+    result = package_operation(supabase, "assign", {
+        "cliente_id": cliente_id, "tipo_pacchetto_id": tipo_pacchetto_id,
+    })
+    invalidate_calendar_cache()
+    invalidate_dashboard_caches()
+    return result.get("pacchetto")
+
+
+@app.errorhandler(PackageAccountingError)
+def package_accounting_error(error):
+    return jsonify({"error": str(error)}), error.status
 
 
 def normalize_datetime_local(value):
@@ -725,13 +731,7 @@ def index():
 
     now = datetime.now()
 
-    # Se cache valida (<60 secondi), usa quella
-    if _dashboard_cache["timestamp"] and (now - _dashboard_cache["timestamp"]) < timedelta(seconds=60):
-        return render_template(
-            "index.html",
-            dashboard_pacchetti=_dashboard_cache["pacchetti"],
-            dashboard_clienti=_dashboard_cache["clienti"]
-        )
+    # Read current ledger: process-local caches can be stale in another Render worker.
 
     # Conteggio pacchetti attivi
     pacchetti_attivi = supabase.table("pacchetti_cliente") \
@@ -906,55 +906,11 @@ def aggiungi_email_cliente(cliente_id):
 @app.route("/api/clienti/<cliente_id>", methods=["DELETE"])
 @login_required
 def elimina_cliente(cliente_id):
-
-    # Prima eliminiamo eventuali relazioni in appuntamenti_clienti
-    try:
-        supabase.table("appuntamenti_clienti") \
-            .delete() \
-            .eq("cliente_id", cliente_id) \
-            .execute()
-    except Exception as e:
-        app.logger.warning(
-            "Errore eliminazione relazioni appuntamenti_clienti cliente_id=%s error=%s",
-            cliente_id,
-            e
-        )
-
-    # Eliminiamo eventuali pacchetti cliente
-    try:
-        supabase.table("pacchetti_cliente") \
-            .delete() \
-            .eq("cliente_id", cliente_id) \
-            .execute()
-    except Exception as e:
-        app.logger.warning(
-            "Errore eliminazione pacchetti_cliente cliente_id=%s error=%s",
-            cliente_id,
-            e
-        )
-
-    # Eliminiamo eventuali appuntamenti legati (compatibilità vecchio campo cliente_id)
-    try:
-        supabase.table("appuntamenti") \
-            .delete() \
-            .eq("cliente_id", cliente_id) \
-            .execute()
-    except Exception as e:
-        app.logger.warning(
-            "Errore eliminazione appuntamenti cliente_id=%s error=%s",
-            cliente_id,
-            e
-        )
-
-    # Infine eliminiamo il cliente
-    response = supabase.table("clienti") \
-        .delete() \
-        .eq("id", cliente_id) \
-        .execute()
-
-    if not response.data:
+    result = package_operation(supabase, "delete_client", {"id": cliente_id})
+    if not result.get("deleted"):
         return jsonify({"error": "Cliente non trovato"}), 404
-
+    invalidate_calendar_cache()
+    invalidate_dashboard_caches()
     return jsonify({"success": True})
 
 # GET route per recuperare singolo cliente (usato per WhatsApp reminder)
@@ -994,13 +950,7 @@ def get_appuntamenti():
     cache_key = f"{start}_{end}_{stato}_{servizio_id}_{cliente_query}_{data_da}_{data_a}"
     now = datetime.now()
 
-    # Usa cache se valida (30 secondi)
-    if (
-        _calendar_cache["key"] == cache_key and
-        _calendar_cache["timestamp"] and
-        (now - _calendar_cache["timestamp"]) < timedelta(seconds=30)
-    ):
-        return jsonify(_calendar_cache["data"])
+    # Always read current numbering, including when another worker changed a package.
 
     # 🔧 Normalizzazione formato ISO (rimuove timezone se presente)
     if start:
@@ -1251,120 +1201,20 @@ def crea_appuntamento():
             occ_end_dt = (end_dt + delta_giorni).replace(microsecond=0)
             slot_plan.append((occ_start_dt, occ_end_dt))
 
-    # 🔹 Se dal frontend viene passato un pacchetto specifico lo usiamo
-    pacchetto_id = data.get("pacchetto_cliente_id")
-    sedute_effettuate_corrente = None
-    numero_totale_sedute = None
-
-    cliente_principale = clienti_ids[0] if clienti_ids else None
-
-    if occupato:
-        # Uno slot occupato non e' associato a clienti o pacchetti.
-        pacchetto_id = None
-    elif pacchetto_id:
-        # Recupero pacchetto selezionato
-        pacchetto = supabase.table("pacchetti_cliente") \
-            .select("id,cliente_id,sedute_effettuate,tipi_pacchetto(servizio_id,numero_sedute)") \
-            .eq("id", pacchetto_id) \
-            .single() \
-            .execute()
-
-        if pacchetto.data:
-            pac = pacchetto.data
-
-            # Controllo che il pacchetto appartenga al cliente
-            if pac["cliente_id"] == cliente_principale:
-
-                # Controllo che il servizio combaci
-                if pac["tipi_pacchetto"]["servizio_id"] == servizio_id:
-                    sedute_effettuate_corrente = pac.get("sedute_effettuate", 0) or 0
-                    numero_totale_sedute = pac["tipi_pacchetto"].get("numero_sedute") or 0
-                else:
-                    pacchetto_id = None
-            else:
-                pacchetto_id = None
-    else:
-        # 🔹 Comportamento automatico precedente (fallback)
-        pacchetto_attivo = supabase.table("pacchetti_cliente") \
-            .select("id,cliente_id,sedute_effettuate,tipi_pacchetto(servizio_id,numero_sedute)") \
-            .eq("cliente_id", cliente_principale) \
-            .eq("stato", "attivo") \
-            .limit(1) \
-            .execute()
-
-        if pacchetto_attivo.data:
-            pac = pacchetto_attivo.data[0]
-
-            if pac["tipi_pacchetto"]["servizio_id"] == servizio_id:
-                pacchetto_id = pac["id"]
-                sedute_effettuate_corrente = pac.get("sedute_effettuate", 0) or 0
-                numero_totale_sedute = pac["tipi_pacchetto"].get("numero_sedute") or 0
-
-    appuntamenti_creati_ids = []
-    appuntamenti_creati = []
-    primo_numero_seduta = None
-
-    for occ_start_dt, occ_end_dt in slot_plan:
-        occ_start_dt = occ_start_dt.replace(microsecond=0)
-        occ_end_dt = occ_end_dt.replace(microsecond=0)
-
-        numero_seduta_corrente = None
-        if pacchetto_id:
-            base_sedute = sedute_effettuate_corrente or 0
-            numero_seduta_corrente = base_sedute + 1
-            if primo_numero_seduta is None:
-                primo_numero_seduta = numero_seduta_corrente
-
-        nuovo_appuntamento = supabase.table("appuntamenti").insert({
-            "cliente_id": cliente_principale,  # manteniamo per compatibilità
-            "servizio_id": servizio_id,
-            "start_datetime": occ_start_dt.isoformat(),
-            "end_datetime": occ_end_dt.isoformat(),
-            "pacchetto_cliente_id": pacchetto_id,
-            "numero_seduta": numero_seduta_corrente,
-            "scalato": bool(pacchetto_id),
-            "note": note or None,
-            "stato": "occupato" if occupato else "prenotato",
-            "email_conferme": {str(cid): {"status": "pending" if invia_conferma_email else "not_requested"} for cid in clienti_ids}
-        }).execute()
-
-        if not nuovo_appuntamento.data:
-            return jsonify({"error": "Errore creazione appuntamento"}), 500
-
-        appuntamento_id = nuovo_appuntamento.data[0]["id"]
-        appuntamenti_creati_ids.append(appuntamento_id)
-        appuntamenti_creati.append(nuovo_appuntamento.data[0])
-
-        # 🔹 Inserimento clienti nella tabella ponte
-        for cliente_id in clienti_ids:
-            try:
-                supabase.table("appuntamenti_clienti").insert({
-                    "appuntamento_id": appuntamento_id,
-                    "cliente_id": cliente_id
-                }).execute()
-            except Exception as e:
-                app.logger.warning(
-                    "Errore inserimento appuntamenti_clienti appuntamento_id=%s cliente_id=%s error=%s",
-                    appuntamento_id,
-                    cliente_id,
-                    e
-                )
-
-        # =========================
-        # SCALA SEDUTA SUBITO
-        # =========================
-        if pacchetto_id:
-            sedute_effettuate_corrente = (sedute_effettuate_corrente or 0) + 1
-            nuovo_stato = "attivo"
-            if numero_totale_sedute and sedute_effettuate_corrente >= numero_totale_sedute:
-                nuovo_stato = "chiuso"
-
-            supabase.table("pacchetti_cliente").update({
-                "sedute_effettuate": sedute_effettuate_corrente,
-                "stato": nuovo_stato
-            }).eq("id", pacchetto_id).execute()
-
+    result = package_operation(supabase, "create", {
+        "clienti_ids": clienti_ids, "servizio_id": servizio_id,
+        "pacchetto_cliente_id": None if occupato else data.get("pacchetto_cliente_id"),
+        "occupato": occupato, "note": note or None,
+        "invia_conferma_email": invia_conferma_email and not occupato,
+        "slots": [{"start_datetime": start.isoformat(), "end_datetime": end.isoformat()} for start, end in slot_plan],
+    })
+    appuntamenti_creati = result.get("appuntamenti") or []
+    if not appuntamenti_creati:
+        return jsonify({"error": "Creazione non confermata: verifica il calendario prima di riprovare"}), 503
+    appuntamenti_creati_ids = [row["id"] for row in appuntamenti_creati]
+    primo_numero_seduta = appuntamenti_creati[0].get("numero_seduta")
     invalidate_calendar_cache()
+    invalidate_dashboard_caches()
     email_confirmation = {
         "requested": False,
         "attempted_count": 0,
@@ -1383,6 +1233,7 @@ def crea_appuntamento():
         "numero_seduta": primo_numero_seduta,
         "created_count": len(appuntamenti_creati_ids),
         "created_ids": appuntamenti_creati_ids,
+        "package_uncovered_count": result.get("uncovered_count", 0),
         "email_confirmation": email_confirmation
     })
 
@@ -1503,46 +1354,18 @@ def aggiorna_appuntamento(id):
             return jsonify({"error": "Le note possono contenere al massimo 2000 caratteri"}), 400
         payload["note"] = note or None
 
-    response = supabase.table("appuntamenti") \
-        .update(payload) \
-        .eq("id", id) \
-        .execute()
+    response = package_operation(supabase, "update", {"id": id, "changes": payload})
     invalidate_calendar_cache()
-    return jsonify(response.data)
+    invalidate_dashboard_caches()
+    return jsonify(response.get("appuntamenti") or [])
 
 
 @app.route("/api/appuntamenti/<id>", methods=["DELETE"])
 @login_required
 def elimina_appuntamento(id):
-
-    # Recupero appuntamento prima di eliminarlo
-    appo = supabase.table("appuntamenti") \
-        .select("pacchetto_cliente_id, scalato") \
-        .eq("id", id) \
-        .single() \
-        .execute().data
-
-    if appo and appo.get("pacchetto_cliente_id") and appo.get("scalato"):
-        pacchetto_id = appo["pacchetto_cliente_id"]
-
-        pacchetto = supabase.table("pacchetti_cliente") \
-            .select("sedute_effettuate") \
-            .eq("id", pacchetto_id) \
-            .single() \
-            .execute()
-
-        if pacchetto.data and pacchetto.data["sedute_effettuate"] > 0:
-            supabase.table("pacchetti_cliente").update({
-                "sedute_effettuate": pacchetto.data["sedute_effettuate"] - 1
-            }).eq("id", pacchetto_id).execute()
-
-    # Elimino appuntamento
-    supabase.table("appuntamenti") \
-        .delete() \
-        .eq("id", id) \
-        .execute()
-
+    package_operation(supabase, "delete", {"id": id})
     invalidate_calendar_cache()
+    invalidate_dashboard_caches()
     return jsonify({"success": True})
 
 
@@ -1585,7 +1408,7 @@ def get_pacchetti_attivi(cliente_id):
     for pac in pacchetti:
         numero_totale = pac["tipi_pacchetto"]["numero_sedute"]
         effettuate = pac["sedute_effettuate"]
-        rimanenti = numero_totale - effettuate
+        rimanenti = max(0, numero_totale - effettuate)
 
         risultati.append({
             "id": pac["id"],
@@ -1616,10 +1439,9 @@ def assegna_pacchetto_cliente_api(cliente_id):
     if not tipo_pacchetto_id:
         return jsonify({"error": "tipo_pacchetto_id obbligatorio"}), 400
 
-    response = assegna_pacchetto_a_cliente(cliente_id, tipo_pacchetto_id)
+    pacchetto = assegna_pacchetto_a_cliente(cliente_id, tipo_pacchetto_id)
     invalidate_dashboard_caches()
 
-    pacchetto = response.data[0] if response.data else None
     return jsonify({
         "success": True,
         "pacchetto": pacchetto
@@ -1638,9 +1460,7 @@ def pacchetti_dashboard():
 
     now = datetime.now()
 
-    # Usa cache se valida (60 secondi)
-    if _pacchetti_dashboard_cache["timestamp"] and (now - _pacchetti_dashboard_cache["timestamp"]) < timedelta(seconds=60):
-        return jsonify(_pacchetti_dashboard_cache["data"])
+    # Never return a stale count from another worker's previous request.
 
     pacchetti = supabase.table("pacchetti_cliente") \
         .select("id,sedute_effettuate,clienti(nome,cognome),tipi_pacchetto(nome,numero_sedute)") \
@@ -1652,7 +1472,7 @@ def pacchetti_dashboard():
     for pac in pacchetti:
         numero_totale = pac["tipi_pacchetto"]["numero_sedute"]
         effettuate = pac["sedute_effettuate"]
-        rimanenti = numero_totale - effettuate
+        rimanenti = max(0, numero_totale - effettuate)
 
         cliente = pac.get("clienti")
         nome_cliente = ""
@@ -1887,9 +1707,8 @@ def dettaglio_cliente(cliente_id):
         .execute().data
     
     for pac in pacchetti_cliente:
-        pac["sedute_rimanenti"] = (
-            pac["tipi_pacchetto"]["numero_sedute"] - pac["sedute_effettuate"]
-    )
+        pac["sedute_rimanenti"] = max(0,
+            pac["tipi_pacchetto"]["numero_sedute"] - (pac["sedute_effettuate"] or 0))
 
     now = datetime.now().isoformat()
 
@@ -2216,25 +2035,20 @@ def update_stato():
         )
         return redirect(request.referrer or "/")
 
-    response = supabase.table("appuntamenti") \
-        .update({"stato": stato}) \
-        .eq("id", appuntamento_id) \
-        .execute()
+    response = package_operation(supabase, "update", {"id": appuntamento_id, "changes": {"stato": stato}})
 
-    if not response.data:
+    if not response.get("appuntamenti"):
         app.logger.warning("update_stato appuntamento non trovato id=%s", appuntamento_id)
 
     invalidate_calendar_cache()
+    invalidate_dashboard_caches()
     return redirect(request.referrer or "/")
 
 @app.route("/chiudi_pacchetto/<pacchetto_id>", methods=["POST"])
 @login_required
 def chiudi_pacchetto(pacchetto_id):
 
-    supabase.table("pacchetti_cliente") \
-        .update({"stato": "chiuso"}) \
-        .eq("id", pacchetto_id) \
-        .execute()
+    package_operation(supabase, "close", {"id": pacchetto_id})
     invalidate_dashboard_caches()
 
     return redirect(request.referrer)

@@ -292,3 +292,26 @@ test('Browser-autofilled emails are preserved and saved even without an input ev
     await context.salvaEvento();
     assert.equal(calls.find(call => call.url.endsWith('/email')).body.email, 'mario@example.com');
 });
+
+test('Rescheduling refreshes all session numbers, not just the dragged event', async () => {
+    const { context } = mainContext();
+    context.window.refreshed = 0;
+    vm.runInContext('calendar = {refetchEvents() { window.refreshed++; }};', context);
+    const calls = [];
+    context.fetchJsonOrThrow = async url => { calls.push(url); return { count: 0 }; };
+    await context.aggiornaOrario({ event: { id: '42', start: new Date('2026-11-11T10:00:00'), end: new Date('2026-11-11T11:00:00') } });
+    assert.deepEqual(calls, ['/api/appuntamenti/conflitti', '/api/appuntamenti/42']);
+    assert.equal(context.window.refreshed, 1);
+});
+
+test('Package summary ignores an older response when a fresher count has arrived', async () => {
+    const { context, nodes } = mainContext();
+    nodes.dashboardPacchettiCount = new Element();
+    const pending = [];
+    context.fetchJsonOrThrow = () => new Promise(resolve => pending.push(resolve));
+    const older = context.aggiornaContatorePacchetti();
+    const newer = context.aggiornaContatorePacchetti();
+    pending[1]([{}, {}]); await newer;
+    pending[0]([{}]); await older;
+    assert.equal(nodes.dashboardPacchettiCount.textContent, '2');
+});

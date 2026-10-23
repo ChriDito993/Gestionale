@@ -25,6 +25,17 @@ const FILTRI_CALENDARIO_DEFAULT = Object.freeze({
 });
 let filtriCalendario = { ...FILTRI_CALENDARIO_DEFAULT };
 let filtroClienteDebounceTimer;
+let richiestaContatorePacchetti = 0;
+
+async function aggiornaContatorePacchetti() {
+    const counter = document.getElementById('dashboardPacchettiCount');
+    if (!counter) return;
+    const richiesta = ++richiestaContatorePacchetti;
+    try {
+        const packages = await fetchJsonOrThrow('/api/pacchetti_dashboard', {}, 'Impossibile aggiornare i pacchetti');
+        if (richiesta === richiestaContatorePacchetti && Array.isArray(packages)) counter.textContent = String(packages.length);
+    } catch (_) { /* Preserve the last known count; the package panel reports read errors. */ }
+}
 
 function isMobileViewport() {
     return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
@@ -847,6 +858,7 @@ buttonText: {
     }
 
     calendar.on('eventsSet', aggiornaDashboardSettimana);
+    calendar.on('eventsSet', aggiornaContatorePacchetti);
     calendar.on('datesSet', aggiornaDashboardSettimana);
 
     // ===============================
@@ -1281,9 +1293,10 @@ async function assegnaPacchettoRapidoDaAppuntamento() {
         );
 
         const pacchetti = await caricaPacchettiCliente(clientePrimario.id);
+        if (calendar) calendar.refetchEvents();
         const nuovoPacchettoId = payload?.pacchetto?.id;
 
-        if (nuovoPacchettoId && pacchettoSelect) {
+        if (nuovoPacchettoId && pacchettoSelect && pacchetti.some(pac => String(pac.id) === String(nuovoPacchettoId))) {
             pacchettoSelect.value = String(nuovoPacchettoId);
         } else if (pacchetti.length && pacchettoSelect) {
             const ultimo = pacchetti[pacchetti.length - 1];
@@ -1291,7 +1304,7 @@ async function assegnaPacchettoRapidoDaAppuntamento() {
         }
 
         if (tipoSelect) tipoSelect.value = "";
-        mostraToast("Pacchetto assegnato e pronto per l'appuntamento", "success");
+        mostraToast('Pacchetto assegnato. Gli appuntamenti futuri compatibili già presenti sono stati collegati fino alle sedute disponibili.', 'success');
     } catch (error) {
         console.error("Errore assegnazione pacchetto rapido:", error);
         mostraToast(error.message || "Errore assegnazione pacchetto", "error");
@@ -1348,9 +1361,8 @@ async function aggiornaOrario(infoOrEvent) {
             })
         }, "Errore aggiornamento orario appuntamento");
 
-        // aggiorna solo l'evento senza ricaricare tutto il calendario
-        const ev = calendar.getEventById(evento.id);
-        if (ev) ev.setDates(evento.start, evento.end);
+        // Lo spostamento può rinumerare anche le altre sedute del pacchetto.
+        calendar.refetchEvents();
     } catch (error) {
         console.error("Errore aggiorna orario:", error);
         if (typeof info.revert === "function") {
@@ -1765,6 +1777,9 @@ async function salvaEvento() {
             ? `Creati ${createdCount} appuntamenti.` : 'Appuntamento creato con successo.';
         const testoEmail = emailSalvate ? (emailSalvate === 1 ? ' Email salvata in anagrafica.' : ' Email salvate nelle anagrafiche.') : '';
         mostraToast(testoAppuntamento + testoEmail, 'success');
+        if (payload?.package_uncovered_count > 0) {
+            mostraToast(`${payload.package_uncovered_count} appuntamenti non sono coperti da un pacchetto compatibile con sedute disponibili.`, 'warning');
+        }
         mostraEsitoEmailConferma(payload?.email_confirmation);
     } catch (error) {
         console.error("Errore:", error);

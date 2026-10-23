@@ -225,10 +225,82 @@ class FakeSupabase:
         self.pacchetti_cliente = {}
         self.clienti = {}
         self.servizi = {}
+        self.tipi_pacchetto = {}
         self.calls = []
 
     def table(self, table_name):
         return FakeQuery(self, table_name)
+
+    def rpc(self, name, params):
+        assert name == "gestionale_package_operation"
+        return FakePackageRpc(self, params)
+
+
+class FakePackageRpc:
+    """HTTP adapter double; authoritative accounting is tested with real SQL separately."""
+    def __init__(self, db, params):
+        self.db = db
+        self.action = params["p_action"]
+        self.data = params["p_data"]
+
+    def recount(self):
+        for id, package in self.db.pacchetti_cliente.items():
+            rows = [a for a in self.db.appuntamenti.values() if str(a.get("pacchetto_cliente_id")) == str(id)
+                    and a.get("stato") not in ("annullato", "occupato")]
+            rows.sort(key=lambda a: (a.get("start_datetime", ""), str(a["id"])))
+            for number, row in enumerate(rows, 1):
+                row.update(numero_seduta=number, scalato=True)
+            total = (package.get("tipi_pacchetto") or {}).get("numero_sedute", 10)
+            package.update(sedute_effettuate=len(rows), sedute_rimanenti=max(0,total-len(rows)),
+                           stato="chiuso" if package.get("chiusura_manuale") or len(rows)>=total else "attivo")
+
+    def execute(self):
+        db, data = self.db, self.data
+        db.calls.append({"operation": "rpc", "action": self.action, "payload": data})
+        if self.action == "create":
+            rows = []
+            clients = data["clienti_ids"] if not data["occupato"] else []
+            for slot in data["slots"]:
+                id = str(db.next_appuntamento_id); db.next_appuntamento_id += 1
+                package_id = data.get("pacchetto_cliente_id")
+                if not package_id and not data["occupato"]:
+                    package_id = next((p["id"] for p in db.pacchetti_cliente.values()
+                        if str(p.get("cliente_id")) in [str(c) for c in clients] and p.get("stato")=="attivo"
+                        and str((p.get("tipi_pacchetto") or {}).get("servizio_id"))==str(data["servizio_id"])), None)
+                row = {**slot, "id": id, "cliente_id": clients[0] if clients else None,
+                       "servizio_id": data["servizio_id"], "pacchetto_cliente_id": package_id,
+                       "scalato": bool(package_id), "numero_seduta": None,
+                       "note": data.get("note"), "stato": "occupato" if data["occupato"] else "prenotato",
+                       "email_conferme": {str(c): {"status": "pending" if data["invia_conferma_email"] else "not_requested"} for c in clients}}
+                db.appuntamenti[id] = row; rows.append(row)
+                db.appuntamenti_clienti.extend({"appuntamento_id": id,"cliente_id": c} for c in clients)
+            self.recount()
+            return FakeResponse({"appuntamenti": rows})
+        if self.action in ("update", "delete"):
+            row = db.appuntamenti.get(str(data["id"]))
+            if not row:
+                return FakeResponse({"appuntamenti": []})
+            if self.action == "delete":
+                db.appuntamenti.pop(str(data["id"]))
+                db.appuntamenti_clienti = [link for link in db.appuntamenti_clienti if str(link["appuntamento_id"])!=str(data["id"])]
+            else:
+                row.update(data["changes"])
+                if row.get("stato") in ("annullato", "occupato"):
+                    row.update(scalato=False,numero_seduta=None)
+            self.recount()
+            return FakeResponse({"appuntamenti": [row] if self.action=="update" else []})
+        if self.action == "close":
+            package = db.pacchetti_cliente.get(str(data["id"]))
+            if package:
+                package.update(stato="chiuso",chiusura_manuale=True)
+            return FakeResponse({"pacchetto": package})
+        if self.action == "assign":
+            id = str(500 + len(db.pacchetti_cliente))
+            package = {"id": id,"cliente_id": data["cliente_id"],"tipo_pacchetto_id": data["tipo_pacchetto_id"],
+                       "sedute_effettuate": 0,"stato": "attivo", "chiusura_manuale": False}
+            db.pacchetti_cliente[id] = package
+            return FakeResponse({"pacchetto": package})
+        raise AssertionError("Unexpected operation")
 
 
 @pytest.fixture
@@ -1013,6 +1085,8 @@ def test_delete_appuntamento_with_scaled_package_decrements_sessions(authed_clie
         "id": "500",
         "sedute_effettuate": 4,
     }
+    for id in ("89", "90", "91"):
+        fake_supabase.appuntamenti[id] = {"id": id, "pacchetto_cliente_id": "500", "scalato": True}
 
     response = client.delete("/api/appuntamenti/88")
 
@@ -1395,3 +1469,52 @@ def test_new_profile_emails_are_used_for_couple_confirmation_with_ics(authed_cli
     assert all(attachments[0][0].endswith(".ics") for _, attachments in sent)
     assert len(db.appuntamenti) == 1
     assert len(db.appuntamenti_clienti) == 2
+
+
+def test_package_mutations_invalidate_all_dashboard_caches(authed_client):
+    client, db = authed_client
+    db.appuntamenti["1"] = {"id": "1", "pacchetto_cliente_id": None, "stato": "prenotato"}
+    app_module._dashboard_cache = {"timestamp": datetime.now(), "pacchetti": 99, "clienti": 99}
+    app_module._pacchetti_dashboard_cache = {"timestamp": datetime.now(), "data": ["stale"]}
+    assert client.delete("/api/appuntamenti/1").status_code == 200
+    assert app_module._dashboard_cache["timestamp"] is None
+    assert app_module._pacchetti_dashboard_cache["timestamp"] is None
+    assert [call["action"] for call in db.calls if call["operation"]=="rpc"] == ["delete"]
+
+
+def test_manual_package_closure_is_explicit_and_cancellation_keeps_it_closed(authed_client):
+    client, db = authed_client
+    db.pacchetti_cliente["500"] = {"id": "500", "sedute_effettuate": 1, "stato": "attivo"}
+    db.appuntamenti["1"] = {"id": "1", "pacchetto_cliente_id": "500", "stato": "prenotato"}
+    assert client.post("/chiudi_pacchetto/500", headers={"Referer": "/"}).status_code == 302
+    assert db.pacchetti_cliente["500"]["chiusura_manuale"] is True
+    assert client.put("/api/appuntamenti/1", json={"stato": "annullato"}).status_code == 200
+    assert db.pacchetti_cliente["500"]["sedute_effettuate"] == 0
+    assert db.pacchetti_cliente["500"]["stato"] == "chiuso"
+
+
+def test_assign_package_api_uses_transactional_path(authed_client):
+    client, db = authed_client
+    response = client.post("/api/clienti/101/pacchetti", json={"tipo_pacchetto_id": "10"})
+    assert response.status_code == 200
+    assert response.get_json()["pacchetto"]["cliente_id"] == "101"
+    assert any(call.get("action")=="assign" for call in db.calls)
+    assert app_module._calendar_cache["timestamp"] is None
+
+
+@pytest.mark.parametrize("message,code,expected", [("package_capacity","P0001",409),("private-response-test","PGRST202",503)])
+def test_package_errors_are_safe_and_never_send_confirmation(authed_client, monkeypatch, message, code, expected):
+    client, db = authed_client
+    class RpcFailure(Exception):
+        pass
+    error=RpcFailure()
+    error.message=message; error.code=code
+    def fail(*args):
+        raise error
+    monkeypatch.setattr(db,"rpc",fail)
+    monkeypatch.setattr(app_module,"invia_conferme_appuntamento",lambda *args: pytest.fail("Email after failed booking"))
+    response=client.post("/api/appuntamenti",json={"servizio_id":"10","clienti_ids":["101"],"invia_conferma_email":True,
+        "start_datetime":"2026-11-11T10:00:00","end_datetime":"2026-11-11T11:00:00"})
+    assert response.status_code==expected
+    assert "private-response-test" not in response.get_data(as_text=True)
+    assert db.appuntamenti=={}
