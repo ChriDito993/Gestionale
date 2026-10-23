@@ -274,7 +274,7 @@ html, button, input, select, textarea {
 .calendar-filters-card {
     position: relative;
     z-index: 20;
-    width: fit-content;
+    width: 100%;
     margin-left: auto;
     margin-bottom: 14px;
     padding: 0;
@@ -286,6 +286,8 @@ html, button, input, select, textarea {
 .calendar-filters-header {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
 }
 
 .sr-only {
@@ -301,7 +303,8 @@ html, button, input, select, textarea {
 }
 
 .calendar-filters-toggle {
-    width: 38px;
+    width: auto;
+    gap: 7px;
     height: 38px;
     min-height: 0;
     padding: 0;
@@ -397,6 +400,44 @@ html, button, input, select, textarea {
         grid-column: auto;
     }
 }
+
+/* Agenda: controls and event details share the dashboard's quiet surfaces. */
+.calendar-command-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px 20px;
+    align-items: center;
+    padding-bottom: 16px;
+}
+.calendar-heading { min-width: 0; }
+.calendar-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: #64748b; }
+.calendar-heading h2 { margin: 5px 0 0; font-size: clamp(18px, 2vw, 25px); letter-spacing: -.6px; color: #172435; }
+.calendar-command-bar .calendar-new { width: auto; min-height: 42px; padding: 10px 16px; border-radius: 12px; font-size: 13px; box-shadow: none; background: #157b70; }
+.calendar-filters-header .calendar-filters-toggle { width: auto; flex-shrink: 0; padding: 0 12px; border-radius: 10px; box-shadow: none; }
+.calendar-navigation { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.calendar-arrow-group, .calendar-view-switch { display: inline-flex; padding: 3px; background: #f1f5f6; border: 1px solid #e2e8eb; border-radius: 12px; }
+.calendar-view-switch { justify-self: end; }
+.calendar-arrow-group button, .calendar-view-switch button, #calendarRetry {
+    border: 0; background: transparent; color: #475569; padding: 8px 12px; border-radius: 9px;
+    font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; min-height: 34px;
+}
+.calendar-arrow-group button:hover, .calendar-view-switch button:hover { background: #e2e9ec; }
+.calendar-view-switch button[aria-pressed="true"] { background: white; color: #11675d; box-shadow: 0 2px 5px #0f172a12; }
+#calendarPrev, #calendarNext { font-size: 23px; padding: 0 12px; line-height: 1; }
+.calendar-date-label { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #64748b; }
+#calendarDate { width: auto; min-width: 0; margin: 0; padding: 8px 9px; border: 1px solid #e2e8eb; border-radius: 10px; background: #fff; color: #334155; font: inherit; font-size: 12px; }
+.calendar-active-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-right: auto; min-width: 0; }
+.calendar-filter-chip { max-width: 100%; overflow-wrap: anywhere; border: 1px solid #cce4df; background: #eaf5f2; color: #155e55; padding: 7px 10px; border-radius: 9px; font-size: 11px; cursor: pointer; text-align: left; }
+#calendarFilterCount { background: #d5eee6; padding: 2px 5px; border-radius: 5px; font-size: 10px; }
+.calendar-feedback { display: flex; align-items: center; gap: 12px; min-height: 26px; margin-bottom: 8px; color: #64748b; font-size: 12px; }
+#calendarRetry { background: #fef2f2; color: #991b1b; padding: 4px 10px; }
+#calendar.calendar-unavailable { opacity: .5; }
+.calendar-legend { display: flex; gap: 14px; flex-wrap: wrap; padding-top: 14px; color: #64748b; font-size: 10px; }
+.calendar-legend-busy { color: #b91c1c; }
+.calendar-preview { position: fixed; z-index: 105; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow-y: auto; box-sizing: border-box; padding: 16px; border-radius: 14px; background: #fff; color: #334155; border: 1px solid #dbe5e8; box-shadow: 0 12px 40px #0f172a26; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.calendar-preview-name { display: block; color: #172435; font-size: 14px; margin-bottom: 5px; }
+.calendar-preview-email { border-top: 1px solid #edf0f3; margin-top: 10px; padding-top: 10px; color: #64748b; }
+.calendar-preview[hidden], #calendarRetry[hidden], #calendarFilterCount[hidden] { display: none; }
 
 /* ========================= */
 /* CALENDARIO CARD */
@@ -664,6 +705,59 @@ html, button, input, select, textarea {
     text-overflow: ellipsis;
     word-break: break-word;
     display: block;
+}
+
+/* Scoped overrides: no minimum box height that could overlap a 15-minute slot. */
+#calendar .fc-event.calendar-appointment {
+    background: #c5ded9 !important;
+    background: color-mix(in srgb, var(--calendar-event-accent, #0f766e) 24%, white) !important;
+    color: #172435 !important;
+    border: 1px solid #dce8e5 !important;
+    border-color: color-mix(in srgb, var(--calendar-event-accent, #0f766e) 34%, white) !important;
+    border-left: 3px solid var(--calendar-event-accent, #0f766e) !important;
+    border-radius: 9px !important;
+    min-height: 0 !important;
+    padding: 5px 7px !important;
+    box-shadow: 0 2px 5px #0f172a0b;
+    cursor: pointer;
+    transform: none;
+    filter: none;
+}
+#calendar .calendar-appointment .fc-event-main { color: inherit; height: 100%; overflow: hidden; }
+#calendar .calendar-appointment:hover { transform: none; filter: none; box-shadow: 0 3px 10px #0f172a1c; }
+#calendar .calendar-appointment:focus-visible { outline: 2px solid #0f766e !important; outline-offset: 2px; }
+#calendar .calendar-appointment.is-busy { background: #fecaca !important; border-color: #f87171 !important; border-left-color: #b91c1c !important; color: #991b1b !important; }
+#calendar .calendar-appointment.is-cancelled { background: #f1f5f9 !important; border-left-style: dashed !important; }
+#calendar .calendar-appointment.is-cancelled .calendar-event-name { text-decoration: line-through; color: #64748b; }
+#calendar .calendar-appointment.is-no-show .calendar-state-badge { color: #9a3412; background: #ffedd5; }
+#calendar .calendar-appointment.is-preview { background: #e5eeec !important; border: 1px dashed #64748b !important; }
+.calendar-event-content { display: flex; flex-direction: column; gap: 3px; min-width: 0; height: 100%; overflow: hidden; }
+.calendar-event-time { font-size: 10px; font-weight: 600; color: #334155; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.calendar-event-name { font-size: 12px; line-height: 1.25; font-weight: 700; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.calendar-event-service { font-size: 10px; line-height: 1.3; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-event-meta { display: flex; gap: 4px; flex-wrap: wrap; overflow: hidden; min-height: 0; }
+.calendar-session-badge, .calendar-state-badge, .calendar-reminder-badge { padding: 2px 4px; border-radius: 4px; background: #ffffffb3; color: #334155; font-size: 9px; font-weight: 600; white-space: nowrap; }
+.calendar-reminder-badge { color: #16695c; }
+.calendar-appointment.is-short .calendar-event-name { -webkit-line-clamp: 1; }
+.calendar-appointment.is-tight .calendar-event-service { display: none; }
+.calendar-appointment.is-tight .calendar-event-content { gap: 1px; }
+.calendar-appointment.is-tiny .calendar-event-content { flex-direction: row; align-items: center; gap: 5px; }
+.calendar-appointment.is-tiny .calendar-event-time { flex-shrink: 0; font-size: 9px; }
+.calendar-appointment.is-tiny .calendar-event-meta { display: none; }
+.calendar-appointment.is-tiny .calendar-event-name { font-size: 10px; }
+
+@media (max-width: 900px) {
+    .calendar-command-bar { gap: 12px 8px; }
+    .calendar-heading h2 { font-size: 18px; }
+    .calendar-command-bar .calendar-new { font-size: 12px; padding: 10px; min-height: 44px; }
+    .calendar-navigation { grid-column: 1 / -1; grid-row: 2; justify-content: space-between; gap: 8px; }
+    .calendar-view-switch { grid-column: 1 / -1; justify-self: stretch; }
+    .calendar-view-switch button { flex: 1; }
+    .calendar-arrow-group button, .calendar-view-switch button { min-height: 44px; }
+    .calendar-date-label { font-size: 0; gap: 0; }
+    #calendarDate { font-size: 16px; min-height: 44px; box-sizing: border-box; max-width: 155px; }
+    .calendar-legend { gap: 8px 12px; line-height: 1.6; }
+    .calendar-feedback { font-size: 11px; }
 }
 
 /* ========================= */
@@ -3599,12 +3693,14 @@ body.gestionale-dashboard .app-container {
 }
 
 body.gestionale-dashboard .app-header {
-    padding: 22px 24px;
-    margin-bottom: 20px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
     gap: 20px;
-    border-radius: 18px;
-    background: #182230;
-    box-shadow: 0 8px 22px rgba(15,23,42,0.1);
+    flex-wrap: wrap;
+    border-radius: 16px;
+    border: 1px solid #344252;
+    background: linear-gradient(115deg, #182230, #1d2c3c);
+    box-shadow: 0 5px 16px rgba(15,23,42,0.08);
 }
 
 body.gestionale-dashboard .app-header::after {
@@ -3612,18 +3708,20 @@ body.gestionale-dashboard .app-header::after {
 }
 
 body.gestionale-dashboard .app-header .header-left {
-    flex: 1;
+    flex: 1 1 300px;
     min-width: 0;
-    gap: 16px;
+    gap: 14px;
 }
 
 body.gestionale-dashboard .app-header .logo-container {
     flex-shrink: 0;
+    padding-right: 14px;
+    border-right: 1px solid rgba(255,255,255,0.12);
 }
 
 body.gestionale-dashboard .app-header .app-logo {
-    height: 44px !important;
-    max-width: 102px;
+    height: 38px !important;
+    max-width: 88px;
     transform: none;
     opacity: 1;
 }
@@ -3635,15 +3733,30 @@ body.gestionale-dashboard .app-header .title-container {
 body.gestionale-dashboard .app-header h1 {
     font-size: 20px;
     line-height: 1.25;
-    letter-spacing: -0.3px;
+    letter-spacing: -0.5px;
+}
+
+body.gestionale-dashboard .app-header .header-subline {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 3px 10px;
+    margin-top: 4px;
 }
 
 body.gestionale-dashboard .app-header .subtitle {
-    margin-top: 5px;
+    margin-top: 0;
     font-size: 12px;
     line-height: 1.5;
-    color: #b8c2cf;
+    color: #c4ced9;
     opacity: 1;
+}
+
+body.gestionale-dashboard .app-header .header-context {
+    font-size: 10px;
+    line-height: 1.5;
+    color: #a0b0c2;
+    letter-spacing: .2px;
 }
 
 body.gestionale-dashboard .app-header .header-right {
@@ -3652,6 +3765,7 @@ body.gestionale-dashboard .app-header .header-right {
     flex-shrink: 0;
     gap: 8px;
     width: auto;
+    margin-left: auto;
 }
 
 body.gestionale-dashboard .app-header .header-right .btn-primary,
@@ -3660,13 +3774,13 @@ body.gestionale-dashboard .app-header .header-logout {
     align-items: center;
     justify-content: center;
     gap: 7px;
-    min-height: 42px;
-    padding: 10px 12px;
-    border: 1px solid rgba(255,255,255,0.16);
+    min-height: 40px;
+    padding: 9px 12px;
+    border: 1px solid rgba(255,255,255,0.12);
     border-radius: 10px;
-    background: rgba(255,255,255,0.04);
+    background: rgba(255,255,255,0.025);
     color: #e5e7eb;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     line-height: 1.4;
     text-align: center;
@@ -3685,8 +3799,8 @@ body.gestionale-dashboard .app-header .header-logout:hover {
 
 body.gestionale-dashboard .app-header .header-right .header-new-client {
     color: #ffffff;
-    background: #21867a;
-    border-color: #21867a;
+    background: #218579;
+    border-color: #31968a;
 }
 
 body.gestionale-dashboard .app-header .header-right .header-new-client:hover {
@@ -3695,9 +3809,25 @@ body.gestionale-dashboard .app-header .header-right .header-new-client:hover {
 }
 
 body.gestionale-dashboard .app-header .header-logout {
-    padding: 10px;
+    position: relative;
+    padding: 9px;
+    margin-left: 12px;
+    background: transparent;
+    border-color: transparent;
     color: #b8c2cf;
 }
+
+body.gestionale-dashboard .app-header .header-logout::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 25%;
+    height: 50%;
+    border-left: 1px solid rgba(255,255,255,0.15);
+    pointer-events: none;
+}
+
+body.gestionale-dashboard .app-header .header-right svg { flex-shrink: 0; }
 
 body.gestionale-dashboard .header-logout-label {
     display: none;
@@ -3798,26 +3928,38 @@ body.gestionale-dashboard #weekRangeLabel {
     }
 
     body.gestionale-dashboard .app-header {
-        padding: 18px;
+        padding: 16px;
         flex-direction: column;
         align-items: stretch;
-        gap: 18px;
+        gap: 14px;
         margin-bottom: 16px;
     }
 
+    body.gestionale-dashboard .app-header .header-left { flex: initial; width: 100%; }
+
     body.gestionale-dashboard .app-header .header-right {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
         width: 100%;
+        margin: 0;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255,255,255,0.1);
     }
 
     body.gestionale-dashboard .app-header .header-logout {
         gap: 7px;
+        margin: 0;
+        min-height: 44px;
     }
 
     body.gestionale-dashboard .header-logout-label {
-        display: inline;
+        display: none;
     }
+
+    body.gestionale-dashboard .app-header .header-logout::before { display: none; }
+    body.gestionale-dashboard .app-header .header-right .btn-primary { min-height: 44px; padding: 9px 8px; font-size: 12px; }
+    body.gestionale-dashboard .app-header .header-right.header-has-payments { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body.gestionale-dashboard .header-has-payments .header-logout-label { display: inline; }
 
     body.gestionale-dashboard .dashboard-mini {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3837,8 +3979,8 @@ body.gestionale-dashboard #weekRangeLabel {
     }
 
     body.gestionale-dashboard .app-header .app-logo {
-        height: 36px !important;
-        max-width: 82px;
+        height: 32px !important;
+        max-width: 74px;
     }
 
     body.gestionale-dashboard .app-header h1 {
@@ -3848,6 +3990,12 @@ body.gestionale-dashboard #weekRangeLabel {
     body.gestionale-dashboard .app-header .subtitle {
         font-size: 11px;
     }
+
+    body.gestionale-dashboard .app-header .logo-container { padding-right: 10px; }
+    body.gestionale-dashboard .app-header .header-context { font-size: 10px; }
+    body.gestionale-dashboard .app-header .header-right .btn-primary { padding: 9px 6px; gap: 4px; font-size: 11px; }
+    body.gestionale-dashboard .app-header .header-nav-link svg { display: none; }
+    body.gestionale-dashboard .app-header .header-new-client svg { width: 14px; height: 14px; }
 
     body.gestionale-dashboard .dashboard-card {
         padding: 14px 12px;

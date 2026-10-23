@@ -94,6 +94,3 @@
     .edit-schedule-grid > div:first-child { grid-column: 1 / -1; }
     .confirmation-person { flex-wrap: wrap; }
 }
-@media (max-width: 900px) {
-    .gestionale-dashboard .header-right:has(.header-new-client:nth-child(2)) .header-logout { grid-column: 1 / -1; }
-}

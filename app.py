@@ -989,6 +989,7 @@ def get_appuntamenti():
         .select("""
             *,
             servizi(nome,colore_calendario),
+            pacchetti_cliente(sedute_totali),
             appuntamenti_clienti(
                 cliente_id,
                 clienti(nome,cognome)
@@ -1013,11 +1014,11 @@ def get_appuntamenti():
         response = query.execute()
     except Exception as e:
         app.logger.exception("Errore query Supabase /api/appuntamenti")
-        return jsonify([])
+        return jsonify({"error": "Impossibile caricare il calendario. Riprova tra poco."}), 503
 
     if not response or response.data is None:
-        app.logger.warning("Response Supabase vuota su /api/appuntamenti: %s", response)
-        return jsonify([])
+        app.logger.warning("Response Supabase non valida su /api/appuntamenti")
+        return jsonify({"error": "Impossibile caricare il calendario. Riprova tra poco."}), 503
 
     eventi = []
 
@@ -1066,6 +1067,7 @@ def get_appuntamenti():
                 "stato": appo.get("stato"),
                 "occupato": is_occupato,
                 "numero_seduta": appo.get("numero_seduta"),
+                "sedute_totali": (appo.get("pacchetti_cliente") or {}).get("sedute_totali"),
                 "note": appo.get("note") or "",
                 "reminder_whatsapp": appo.get("reminder_whatsapp", False)
             }

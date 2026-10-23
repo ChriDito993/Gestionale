@@ -7,7 +7,7 @@ const root = path.join(__dirname, '..');
 
 class Element {
     constructor(tag = 'div') {
-        this.tag = tag; this.children = []; this.style = {}; this.dataset = {}; this.attributes = {};
+        this.tag = tag; this.children = []; this.style = { setProperty(name, value) { this[name] = value; } }; this.dataset = {}; this.attributes = {};
         this.value = ''; this.checked = false; this.disabled = false; this.hidden = false;
         this.textContent = ''; this.innerHTML = ''; this.listeners = {}; this.classes = new Set();
         this.classList = {
@@ -25,11 +25,13 @@ class Element {
     querySelectorAll() { return []; }
     querySelector() { return null; }
     focus() { this.focused = true; }
+    getBoundingClientRect() { return { height: this.height || 100, left: 30, top: 40, bottom: 140 }; }
 }
 
 function mainContext() {
     const nodes = {};
     const document = {
+        body: new Element('body'),
         getElementById: id => nodes[id] || null,
         querySelectorAll: selector => selector === '#eventoEmailMancantiCampi input'
             ? (nodes.eventoEmailMancantiCampi?.children || []).flatMap(row => row.children.filter(child => child.tag === 'input')) : [],
@@ -41,7 +43,8 @@ function mainContext() {
         },
         createTextNode: text => ({ textContent: text }),
     };
-    const context = vm.createContext({ document, window: { addEventListener() {}, confirm: () => false }, console,
+    const context = vm.createContext({ document, window: { addEventListener() {}, confirm: () => false,
+        matchMedia: () => ({ matches: false }), innerWidth: 1200, innerHeight: 800 }, console,
         requestAnimationFrame: fn => fn(), setTimeout, clearTimeout, URLSearchParams });
     vm.runInContext(fs.readFileSync(path.join(root, 'static/main.js'), 'utf8'), context);
     context.mostraToast = () => {};
@@ -314,4 +317,206 @@ test('Package summary ignores an older response when a fresher count has arrived
     pending[1]([{}, {}]); await newer;
     pending[0]([{}]); await older;
     assert.equal(nodes.dashboardPacchettiCount.textContent, '2');
+});
+
+function calendarTestEvent(props = {}) {
+    return { id: '42', start: new Date('2026-11-11T10:00:00'), end: new Date('2026-11-11T11:00:00'),
+        extendedProps: { clienti: 'Mario Rossi + Anna Bianchi', servizio: 'Ginnastica di coppia',
+            numero_seduta: 3, sedute_totali: 10, stato: 'prenotato', ...props } };
+}
+
+test('Calendar cards show times, both full names and authoritative package numbering as plain text', () => {
+    const { context } = mainContext();
+    const event = calendarTestEvent();
+    const card = context.renderCalendarEvent({ event }).domNodes[0];
+    assert.match(card.children[0].textContent, /10:00.*11:00/);
+    assert.equal(card.children[1].textContent, 'Mario Rossi + Anna Bianchi');
+    assert.equal(card.children[2].textContent, 'Ginnastica di coppia');
+    assert.equal(card.children[3].children[0].textContent, 'Seduta 3/10');
+    const hostile = context.renderCalendarEvent({ event: calendarTestEvent({ clienti: '<img src=x onerror=alert(1)>' }) }).domNodes[0];
+    assert.equal(hostile.children[1].innerHTML, '');
+    assert.match(hostile.children[1].textContent, /<img/);
+    assert.equal(context.calendarSessionLabel({ numero_seduta: 3 }), 'Seduta 3');
+    assert.equal(context.calendarSessionLabel({ occupato: true, numero_seduta: 3 }), '');
+});
+
+test('Occupied and short events keep red identity, accessible summaries and compact layout', () => {
+    const { context } = mainContext();
+    const event = calendarTestEvent({ occupato: true, stato: 'occupato' });
+    const el = new Element(); el.height = 28;
+    context.mountCalendarEvent({ event, el });
+    assert.equal(el.style['--calendar-event-accent'], '#b91c1c');
+    assert.equal(el.classes.has('is-busy'), true);
+    assert.equal(el.classes.has('is-tiny'), true);
+    assert.equal(el.getAttribute('role'), 'button');
+    assert.match(el.getAttribute('aria-label'), /Occupato/);
+    assert.equal(context.renderCalendarEvent({ event }).domNodes[0].children.length, 2);
+    assert.equal(context.renderCalendarEvent({ event: { display: 'background' } }), undefined);
+});
+
+test('Opening an appointment works on a phone and with the keyboard without sending emails', () => {
+    const { context } = mainContext();
+    context.window.matchMedia = () => ({ matches: true });
+    let opened = 0;
+    context.apriModificaModal = () => opened++;
+    context.fetch = () => assert.fail('No send expected');
+    const event = calendarTestEvent(); const el = new Element();
+    context.openCalendarAppointment({ event });
+    assert.equal(opened, 1);
+    assert.equal(context.window.eventoSelezionato, event);
+    context.mountCalendarEvent({ event, el });
+    el.listeners.keydown({ key: 'Enter', preventDefault() {} });
+    assert.equal(opened, 2);
+});
+
+test('Calendar errors are explicit, retryable and never marked as an empty successful agenda', async () => {
+    const { context, nodes } = mainContext();
+    for (const id of ['calendar', 'calendarRetry', 'calendarStatusText', 'calendarNew']) nodes[id] = new Element();
+    context.fetchJsonOrThrow = async () => { throw new Error('private provider details'); };
+    let failed = 0;
+    await context.loadCalendarEvents({ startStr: 'a', endStr: 'b' }, () => assert.fail(), () => failed++);
+    assert.equal(failed, 1);
+    assert.equal(nodes.calendarRetry.hidden, false);
+    assert.equal(nodes.calendarNew.disabled, true);
+    assert.equal(nodes.calendar.classes.has('calendar-unavailable'), true);
+    assert.match(nodes.calendarStatusText.textContent, /non è verificata/);
+    context.fetchJsonOrThrow = async () => [];
+    await context.loadCalendarEvents({ startStr: 'a', endStr: 'b' }, () => {}, () => assert.fail());
+    assert.equal(nodes.calendarRetry.hidden, true);
+    assert.equal(nodes.calendarNew.disabled, false);
+    assert.equal(nodes.calendar.classes.has('calendar-unavailable'), false);
+    assert.match(nodes.calendarStatusText.textContent, /Nessun appuntamento/);
+    context.fetchJsonOrThrow = async () => ({ error: 'unexpected payload' });
+    await context.loadCalendarEvents({ startStr: 'a', endStr: 'b' }, () => assert.fail(), () => failed++);
+    assert.equal(failed, 2);
+});
+
+test('A stale calendar failure never overwrites a newer successful range', async () => {
+    const { context, nodes } = mainContext();
+    nodes.calendarStatusText = new Element(); nodes.calendarRetry = new Element();
+    let rejectOld;
+    context.fetchJsonOrThrow = () => new Promise((_, reject) => { rejectOld = reject; });
+    const old = context.loadCalendarEvents({ startStr: 'a', endStr: 'b' }, () => {}, () => {});
+    context.fetchJsonOrThrow = async () => [calendarTestEvent()];
+    await context.loadCalendarEvents({ startStr: 'c', endStr: 'd' }, () => {}, () => assert.fail());
+    rejectOld(new Error('late')); await old;
+    assert.equal(nodes.calendarStatusText.textContent, '');
+    assert.equal(nodes.calendarRetry.hidden, true);
+});
+
+test('Filter chips identify and remove one filter without clearing the others', () => {
+    const { context, nodes } = mainContext();
+    for (const id of ['calendarActiveFilters', 'calendarFilterCount', 'filtroStato', 'filtroServizio',
+        'filtroCliente', 'filtroDataDa', 'filtroDataA', 'toggleFiltriCalendario']) nodes[id] = new Element();
+    nodes.filtroStato.value = 'svolto'; nodes.filtroCliente.value = 'Mario';
+    context.aggiornaFiltriCalendarioDaUI(false);
+    assert.equal(nodes.calendarActiveFilters.children.length, 2);
+    assert.match(nodes.calendarActiveFilters.children[0].textContent, /Svolto/);
+    nodes.calendarActiveFilters.children[0].listeners.click();
+    assert.equal(nodes.filtroStato.value, '');
+    assert.equal(nodes.filtroCliente.value, 'Mario');
+    assert.equal(nodes.calendarActiveFilters.children.length, 1);
+    context.resetFiltriCalendario();
+    assert.equal(nodes.calendarActiveFilters.children.length, 0);
+    assert.equal(nodes.calendarFilterCount.hidden, true);
+});
+
+test('Toolbar changes dates and views, updates active state and creates only on a ready calendar', () => {
+    const { context, nodes } = mainContext();
+    for (const id of ['calendarTitle', 'calendarDate', 'calendarPrev', 'calendarNext', 'calendarToday',
+        'calendarViewDay', 'calendarViewWeek', 'calendarNew', 'calendarRetry']) nodes[id] = new Element();
+    const calls = [];
+    context.window.testCalendar = { prev: () => calls.push('prev'), next: () => calls.push('next'), today: () => calls.push('today'),
+        changeView: type => calls.push(type), gotoDate: date => calls.push(date), refetchEvents: () => calls.push('retry'),
+        getDate: () => new Date('2026-11-11T12:00:00') };
+    vm.runInContext('calendar = window.testCalendar;', context);
+    context.apriModal = () => calls.push('create');
+    context.initializeCalendarControls();
+    nodes.calendarPrev.listeners.click(); nodes.calendarNext.listeners.click(); nodes.calendarToday.listeners.click();
+    nodes.calendarViewDay.listeners.click(); nodes.calendarViewWeek.listeners.click(); nodes.calendarRetry.listeners.click();
+    nodes.calendarDate.listeners.change({ target: { value: '2026-11-12', validity: { valid: true } } });
+    context.updateCalendarToolbar({ view: { title: '11 novembre', type: 'timeGridDay', calendar: context.window.testCalendar } });
+    assert.equal(nodes.calendarTitle.textContent, '11 novembre');
+    assert.equal(nodes.calendarDate.value, '2026-11-11');
+    assert.equal(nodes.calendarViewDay.getAttribute('aria-pressed'), 'true');
+    assert.equal(nodes.calendarViewWeek.getAttribute('aria-pressed'), 'false');
+    nodes.calendarNew.listeners.click();
+    context.setCalendarReadState('error'); nodes.calendarNew.listeners.click();
+    assert.deepEqual(calls, ['prev', 'next', 'today', 'timeGridDay', 'timeGridWeek', 'retry', '2026-11-12', 'create']);
+});
+
+test('Preview reads per-person email status without claiming delivery and ignores responses after closing', async () => {
+    const { context, nodes } = mainContext();
+    const event = calendarTestEvent(); const el = new Element();
+    context.fetchJsonOrThrow = async (url, options) => {
+        assert.equal(url, '/api/appuntamenti/42/conferme'); assert.equal(options.method, undefined);
+        return { destinatari: [{ nome: 'Mario', has_email: true, status: 'sent' }, { nome: 'Anna', has_email: false }] };
+    };
+    await context.showCalendarPreview({ event, el });
+    let preview = nodes.calendarPreview;
+    assert.match(preview.children.at(-1).textContent, /consegna non verificata/);
+    assert.match(preview.children.at(-1).textContent, /Anna: Indirizzo mancante/);
+    assert.equal(el.getAttribute('aria-describedby'), 'calendarPreview');
+    let resolve;
+    context.fetchJsonOrThrow = () => new Promise(done => { resolve = done; });
+    const pending = context.showCalendarPreview({ event, el });
+    context.hideCalendarPreview();
+    resolve({ destinatari: [{ nome: 'Old person', has_email: true, status: 'sent' }] }); await pending;
+    assert.equal(preview.hidden, true);
+    assert.doesNotMatch(preview.children.at(-1).textContent, /Old person/);
+    assert.equal(el.getAttribute('aria-describedby'), undefined);
+});
+
+test('Day view weekly summary reads the whole week and ignores older responses', async () => {
+    const { context, nodes } = mainContext();
+    nodes.weekCount = new Element(); nodes.weekRangeLabel = new Element();
+    context.window.testCalendar = { getDate: () => new Date('2026-10-23T12:00:00') };
+    vm.runInContext('calendar = window.testCalendar;', context);
+    const requests = [];
+    context.fetchJsonOrThrow = url => new Promise(resolve => requests.push({ url, resolve }));
+    const old = context.updateCalendarWeekSummary();
+    const current = context.updateCalendarWeekSummary();
+    const url = new URL(requests[0].url, 'http://localhost');
+    assert.match(url.searchParams.get('start'), /^2026-10-19T00:00:00$/);
+    assert.match(url.searchParams.get('end'), /^2026-10-26T00:00:00$/);
+    requests[1].resolve([{}, {}, {}]); await current;
+    requests[0].resolve([{}]); await old;
+    assert.equal(nodes.weekCount.textContent, '3');
+    assert.match(nodes.weekRangeLabel.textContent, /25/);
+});
+
+test('Rome weeks keep Monday midnight boundaries over daylight saving changes', () => {
+    const originalTZ = process.env.TZ;
+    process.env.TZ = 'Europe/Rome';
+    try {
+        const { context } = mainContext();
+        for (const date of ['2026-10-23T12:00:00', '2026-03-27T12:00:00']) {
+            const range = context.getSettimanaRange(new Date(date));
+            assert.equal(range.monday.getDay(), 1);
+            assert.equal(range.sundayExclusive.getDay(), 1);
+            assert.equal(range.sundayExclusive.getHours(), 0);
+        }
+    } finally {
+        if (originalTZ === undefined) delete process.env.TZ; else process.env.TZ = originalTZ;
+    }
+});
+
+test('Calendar configuration starts phones in day view with taps enabled and accidental dragging disabled', () => {
+    const source = fs.readFileSync(path.join(root, 'static/main.js'), 'utf8');
+    const start = source.indexOf('new FullCalendar.Calendar(calendarEl, {') + 'new FullCalendar.Calendar(calendarEl, '.length;
+    const end = source.indexOf('    });\n\n    calendar.render();', start);
+    assert.ok(end > start);
+    for (const mobile of [true, false]) {
+        const { context } = mainContext();
+        vm.runInContext(`const mobileMode = ${mobile}; window.calendarOptions = ${source.slice(start, end)} };`, context);
+        const options = context.window.calendarOptions;
+        assert.equal(options.initialView, mobile ? 'timeGridDay' : 'timeGridWeek');
+        assert.equal(options.selectable, !mobile);
+        assert.equal(options.editable, !mobile);
+        assert.equal(options.eventClick, context.openCalendarAppointment);
+        assert.equal(options.headerToolbar, false);
+        context.setCalendarReadState('error');
+        assert.equal(options.selectAllow(), false);
+        assert.equal(options.eventAllow(), false);
+    }
 });

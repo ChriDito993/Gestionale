@@ -1149,6 +1149,80 @@ def test_calendar_marks_occupied_slot_in_red(authed_client):
     assert body[0]["extendedProps"]["occupato"] is True
 
 
+def test_calendar_exposes_package_total_without_email_tracking_secrets(authed_client):
+    client, db = authed_client
+    db.appuntamenti["1"] = {
+        "id": "1", "start_datetime": "2026-11-11T10:00:00", "end_datetime": "2026-11-11T11:00:00",
+        "numero_seduta": 3, "pacchetti_cliente": {"sedute_totali": 10},
+        "email_conferme": {"101": {"status": "sent", "fingerprint": "private-fingerprint"}},
+    }
+    response = client.get("/api/appuntamenti")
+    assert response.status_code == 200
+    props = response.get_json()[0]["extendedProps"]
+    assert props["numero_seduta"] == 3
+    assert props["sedute_totali"] == 10
+    assert "email_conferme" not in props
+    assert "private-fingerprint" not in response.get_data(as_text=True)
+
+
+@pytest.mark.parametrize("show_payments", [False, True])
+def test_dashboard_header_preserves_navigation_and_optional_payments(show_payments):
+    from flask import render_template
+    from html.parser import HTMLParser
+
+    class HeaderParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.in_header = False
+            self.links = []
+            self.buttons = []
+            self.nav_class = ""
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "header":
+                self.in_header = True
+            if not self.in_header:
+                return
+            if tag == "a":
+                self.links.append(attrs.get("href"))
+            if tag == "button":
+                self.buttons.append(attrs)
+            if tag == "nav":
+                self.nav_class = attrs.get("class", "")
+
+        def handle_endtag(self, tag):
+            if tag == "header":
+                self.in_header = False
+
+    with app_module.app.test_request_context("/"):
+        html = render_template("index.html", show_payments=show_payments, dashboard_pacchetti=0, dashboard_clienti=0)
+    parser = HeaderParser()
+    parser.feed(html)
+    assert "/clienti" in parser.links
+    assert "/logout" in parser.links
+    assert ("/pagamenti" in parser.links) is show_payments
+    assert ("header-has-payments" in parser.nav_class) is show_payments
+    assert len(parser.buttons) == 1
+    assert parser.buttons[0]["onclick"] == "apriModalCliente()"
+    assert parser.buttons[0]["type"] == "button"
+    assert 'class="header-subline"' in html
+
+
+@pytest.mark.parametrize("bad_response", ["error", "null"])
+def test_calendar_query_failures_are_not_successful_empty_agendas(authed_client, monkeypatch, bad_response):
+    client, _db = authed_client
+    def fail_or_null(_query):
+        if bad_response == "error":
+            raise RuntimeError("private-provider-detail")
+        return FakeResponse(None)
+    monkeypatch.setattr(FakeQuery, "execute", fail_or_null)
+    response = client.get("/api/appuntamenti")
+    assert response.status_code == 503
+    assert "error" in response.get_json()
+    assert "private-provider-detail" not in response.get_data(as_text=True)
+
+
 def test_health_endpoint_is_public(unauth_client):
     client = unauth_client
     response = client.get("/health")

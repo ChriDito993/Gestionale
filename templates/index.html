@@ -24,16 +24,23 @@
     <header class="app-header">
         <div class="header-left">
             <div class="logo-container">
-                <img src="{{ static_file('logo.png') }}" alt="Logo" class="app-logo">
+                <img src="{{ static_file('logo.png') }}" alt="Logo Massoterapia e PT" class="app-logo">
             </div>
             <div class="title-container">
                 <h1>Massoterapia &amp; PT</h1>
-                <span class="subtitle">Christian Di Tommaso <span aria-hidden="true">·</span> Gestionale appuntamenti</span>
+                <div class="header-subline">
+                    <span class="subtitle">Christian Di Tommaso</span>
+                    <span class="header-context">Gestionale appuntamenti</span>
+                </div>
             </div>
         </div>
 
-        <nav class="header-right" aria-label="Navigazione gestionale">
+        <nav class="header-right{% if show_payments %} header-has-payments{% endif %}" aria-label="Navigazione gestionale">
             <a href="/clienti" class="btn-primary header-nav-link">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M20 21v-2a4 4 0 0 0-3-3.87"/>
+                    <circle cx="9" cy="7" r="4"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
                 Archivio clienti
             </a>
 
@@ -108,6 +115,7 @@
     <!-- FILTRI RAPIDI CALENDARIO -->
     <div class="calendar-filters-card">
         <div class="calendar-filters-header">
+            <div id="calendarActiveFilters" class="calendar-active-filters" aria-label="Filtri attivi"></div>
             <button type="button"
                     id="toggleFiltriCalendario"
                     class="btn-apple-ghost calendar-filters-toggle"
@@ -119,7 +127,7 @@
                     <circle cx="10.8" cy="10.8" r="5.8"></circle>
                     <path d="m15.2 15.2 4.3 4.3"></path>
                 </svg>
-                <span class="sr-only">Cerca e filtra</span>
+                <span>Filtri</span><span id="calendarFilterCount" hidden></span>
             </button>
         </div>
 
@@ -173,12 +181,40 @@
     </div>
 
     <!-- CALENDARIO -->
-    <div class="calendar-wrapper">
+    <section class="calendar-wrapper" aria-label="Agenda appuntamenti">
+        <div class="calendar-command-bar">
+            <div class="calendar-heading">
+                <span class="calendar-eyebrow">La tua agenda</span>
+                <h2 id="calendarTitle"></h2>
+            </div>
+            <button type="button" id="calendarNew" class="btn-apple-primary calendar-new">+ Appuntamento</button>
+            <div class="calendar-navigation" aria-label="Navigazione calendario">
+                <div class="calendar-arrow-group">
+                    <button type="button" id="calendarPrev" aria-label="Periodo precedente">‹</button>
+                    <button type="button" id="calendarToday">Oggi</button>
+                    <button type="button" id="calendarNext" aria-label="Periodo successivo">›</button>
+                </div>
+                <label class="calendar-date-label" for="calendarDate">Vai al giorno
+                    <input type="date" id="calendarDate">
+                </label>
+            </div>
+            <div class="calendar-view-switch" role="group" aria-label="Vista calendario">
+                <button type="button" id="calendarViewDay" aria-pressed="false">Giorno</button>
+                <button type="button" id="calendarViewWeek" aria-pressed="false">Settimana</button>
+            </div>
+        </div>
+        <div class="calendar-feedback" role="status" aria-live="polite" aria-atomic="true">
+            <span id="calendarStatusText"></span>
+            <button type="button" id="calendarRetry" hidden>Riprova</button>
+        </div>
         <p class="mobile-calendar-hint">
-            Modalità mobile: tocca uno slot orario per aggiungere un appuntamento.
+            Tocca uno spazio libero per creare. Tocca un appuntamento per aprirlo.
         </p>
         <div id="calendar"></div>
-    </div>
+        <div class="calendar-legend" aria-label="Legenda calendario">
+            <span>Il bordo identifica il servizio</span><span>✓ Svolto</span><span>↪ Annullato</span><span>! Assente</span><span class="calendar-legend-busy">● Occupato</span>
+        </div>
+    </section>
 
 </div>
 

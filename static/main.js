@@ -26,6 +26,277 @@ const FILTRI_CALENDARIO_DEFAULT = Object.freeze({
 let filtriCalendario = { ...FILTRI_CALENDARIO_DEFAULT };
 let filtroClienteDebounceTimer;
 let richiestaContatorePacchetti = 0;
+let calendarReadSequence = 0;
+let calendarReadState = 'ready';
+let calendarPreviewToken = 0;
+let calendarPreviewTimer;
+let calendarPreviewAnchor;
+let calendarWeekSequence = 0;
+
+async function fetchCalendarWeekEvents(baseDate) {
+    const { monday, sundayExclusive } = getSettimanaRange(baseDate);
+    const events = await fetchJsonOrThrow(buildAppuntamentiUrl({
+        startStr: formatDateTimeForApi(monday), endStr: formatDateTimeForApi(sundayExclusive)
+    }), { cache: 'no-store' });
+    if (!Array.isArray(events)) throw new Error('Elenco settimanale non disponibile');
+    return events;
+}
+
+async function updateCalendarWeekSummary() {
+    const sequence = ++calendarWeekSequence;
+    const { monday, sundayExclusive } = getSettimanaRange(calendar.getDate());
+    const options = { day: '2-digit', month: 'short' };
+    const sunday = new Date(sundayExclusive); sunday.setDate(sunday.getDate() - 1);
+    const label = document.getElementById('weekRangeLabel');
+    const counter = document.getElementById('weekCount');
+    if (label) label.textContent = `${monday.toLocaleDateString('it-IT', options)} – ${sunday.toLocaleDateString('it-IT', options)}`;
+    if (counter) counter.textContent = '…';
+    try {
+        const events = await fetchCalendarWeekEvents(calendar.getDate());
+        if (sequence === calendarWeekSequence && counter) counter.textContent = String(events.length);
+    } catch (_) {
+        if (sequence === calendarWeekSequence && counter) counter.textContent = '—';
+    }
+}
+
+const CALENDAR_STATES = Object.freeze({
+    prenotato: 'Prenotato', confermato: 'Confermato', svolto: '✓ Svolto',
+    completato: '✓ Completato', annullato: '↪ Annullato', no_show: '! Assente', occupato: 'Occupato'
+});
+
+function calendarSessionLabel(props) {
+    if (!props.numero_seduta || props.occupato) return '';
+    return `Seduta ${props.numero_seduta}${props.sedute_totali ? `/${props.sedute_totali}` : ''}`;
+}
+
+function calendarTimeLabel(event) {
+    return event.start ? `${formatTimeHm(event.start)}${event.end ? ` – ${formatTimeHm(event.end)}` : ''}` : '';
+}
+
+function calendarTextElement(tag, className, text) {
+    const element = document.createElement(tag);
+    element.className = className;
+    element.textContent = text;
+    return element;
+}
+
+function renderCalendarEvent(arg) {
+    if (arg.event.display === 'background') return;
+    const props = arg.event.extendedProps || {};
+    const wrapper = calendarTextElement('div', 'calendar-event-content', '');
+    wrapper.appendChild(calendarTextElement('div', 'calendar-event-time', calendarTimeLabel(arg.event)));
+    wrapper.appendChild(calendarTextElement('div', 'calendar-event-name', arg.isMirror ? 'Nuovo appuntamento'
+        : props.occupato ? 'Occupato' : props.clienti || arg.event.title || 'Appuntamento'));
+    if (arg.isMirror || props.occupato) return { domNodes: [wrapper] };
+    if (props.servizio) wrapper.appendChild(calendarTextElement('div', 'calendar-event-service', props.servizio));
+    const meta = calendarTextElement('div', 'calendar-event-meta', '');
+    const session = calendarSessionLabel(props);
+    if (session) meta.appendChild(calendarTextElement('span', 'calendar-session-badge', session));
+    if (props.stato && props.stato !== 'prenotato') {
+        meta.appendChild(calendarTextElement('span', 'calendar-state-badge', CALENDAR_STATES[props.stato] || props.stato));
+    }
+    // This flag is a manual reminder marker, not proof of WhatsApp delivery.
+    if (props.reminder_whatsapp) meta.appendChild(calendarTextElement('span', 'calendar-reminder-badge', '✓ WA'));
+    wrapper.appendChild(meta);
+    return { domNodes: [wrapper] };
+}
+
+function hideCalendarPreview() {
+    clearTimeout(calendarPreviewTimer);
+    calendarPreviewToken++;
+    const preview = document.getElementById('calendarPreview');
+    if (preview) preview.hidden = true;
+    if (calendarPreviewAnchor) calendarPreviewAnchor.removeAttribute('aria-describedby');
+    calendarPreviewAnchor = null;
+}
+
+function scheduleHideCalendarPreview() {
+    clearTimeout(calendarPreviewTimer);
+    calendarPreviewTimer = setTimeout(hideCalendarPreview, 160);
+}
+
+function positionCalendarPreview(preview, anchor) {
+    const rect = anchor.getBoundingClientRect();
+    preview.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - preview.offsetWidth - 8))}px`;
+    const below = rect.bottom + 8;
+    preview.style.top = `${Math.max(8, below + preview.offsetHeight <= window.innerHeight ? below : rect.top - preview.offsetHeight - 8)}px`;
+}
+
+async function showCalendarPreview(info) {
+    if (isMobileViewport() || info.isMirror || info.event.display === 'background') return;
+    hideCalendarPreview();
+    const token = calendarPreviewToken;
+    let preview = document.getElementById('calendarPreview');
+    if (!preview) {
+        preview = document.createElement('div');
+        preview.id = 'calendarPreview';
+        preview.className = 'calendar-preview';
+        preview.setAttribute('role', 'tooltip');
+        preview.addEventListener('mouseenter', () => clearTimeout(calendarPreviewTimer));
+        preview.addEventListener('mouseleave', scheduleHideCalendarPreview);
+        document.body.appendChild(preview);
+    }
+    const props = info.event.extendedProps || {};
+    const duration = info.event.end && info.event.start ? Math.round((info.event.end - info.event.start) / 60000) : null;
+    const lines = [
+        calendarTextElement('strong', 'calendar-preview-name', props.occupato ? 'Occupato' : props.clienti || info.event.title),
+        calendarTextElement('div', '', `${info.event.start ? formatDateLabel(info.event.start) : ''} · ${calendarTimeLabel(info.event)}${duration ? ` · ${duration} min` : ''}`),
+        calendarTextElement('div', '', props.occupato ? 'Slot non disponibile' : props.servizio || ''),
+        calendarTextElement('div', '', [calendarSessionLabel(props), CALENDAR_STATES[props.stato]].filter(Boolean).join(' · '))
+    ];
+    const email = calendarTextElement('div', 'calendar-preview-email', 'Verifica conferme email…');
+    if (!props.occupato) lines.push(email);
+    preview.replaceChildren(...lines);
+    preview.hidden = false;
+    calendarPreviewAnchor = info.el;
+    info.el.setAttribute('aria-describedby', 'calendarPreview');
+    positionCalendarPreview(preview, info.el);
+    if (props.occupato) return;
+    try {
+        const result = await fetchJsonOrThrow(`/api/appuntamenti/${encodeURIComponent(info.event.id)}/conferme`, { cache: 'no-store' });
+        if (token !== calendarPreviewToken) return;
+        const labels = { sent: 'Inviata (consegna non verificata)', sending: 'Invio in corso', unknown: 'Esito incerto',
+            outdated: 'Da aggiornare', failed: 'Invio non riuscito', untracked: 'Non inviata' };
+        email.textContent = (result.destinatari || []).map(person => `${person.nome}: ${!person.has_email ? 'Indirizzo mancante'
+            : labels[person.status] || 'Stato non disponibile'}`).join(' · ') || 'Nessun destinatario email';
+        positionCalendarPreview(preview, info.el);
+    } catch (_) {
+        if (token === calendarPreviewToken) email.textContent = 'Stato email non disponibile';
+    }
+}
+
+function mountCalendarEvent(info) {
+    if (info.event.display === 'background') return;
+    const props = info.event.extendedProps || {};
+    const color = props.occupato ? '#b91c1c' : /^#[\da-f]{6}$/i.test(info.event.backgroundColor || '')
+        ? info.event.backgroundColor : getColoreServizio(props.servizio || '');
+    info.el.style.setProperty('--calendar-event-accent', color);
+    info.el.classList.add('calendar-appointment');
+    if (info.isMirror) info.el.classList.add('is-preview');
+    if (props.occupato) info.el.classList.add('is-busy');
+    if (props.stato === 'annullato') info.el.classList.add('is-cancelled');
+    if (props.stato === 'no_show') info.el.classList.add('is-no-show');
+    info.el.setAttribute('aria-label', [calendarTimeLabel(info.event), props.occupato ? 'Occupato' : props.clienti,
+        props.servizio, calendarSessionLabel(props), CALENDAR_STATES[props.stato]].filter(Boolean).join(', '));
+    if (info.isMirror) return;
+    info.el.setAttribute('tabindex', '0');
+    info.el.setAttribute('role', 'button');
+    info.el.addEventListener('focus', () => showCalendarPreview(info));
+    info.el.addEventListener('blur', scheduleHideCalendarPreview);
+    info.el.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openCalendarAppointment(info);
+        }
+    });
+    const compact = () => {
+        const height = info.el.getBoundingClientRect().height;
+        info.el.classList.toggle('is-tight', height < 100);
+        info.el.classList.toggle('is-short', height < 70);
+        info.el.classList.toggle('is-tiny', height < 44);
+    };
+    compact();
+    if (typeof ResizeObserver !== 'undefined') {
+        info.el.calendarObserver = new ResizeObserver(compact);
+        info.el.calendarObserver.observe(info.el);
+    }
+}
+
+function openCalendarAppointment(info) {
+    info.jsEvent?.preventDefault?.();
+    hideCalendarPreview();
+    window.eventoSelezionato = info.event;
+    apriModificaModal();
+}
+
+function setCalendarReadState(state, message = '') {
+    calendarReadState = state;
+    const text = document.getElementById('calendarStatusText');
+    const retry = document.getElementById('calendarRetry');
+    const element = document.getElementById('calendar');
+    if (text) text.textContent = message;
+    if (retry) retry.hidden = state !== 'error';
+    if (element) {
+        element.setAttribute('aria-busy', String(state === 'loading'));
+        // Failed reads must never look like free, bookable time.
+        element.classList.toggle('calendar-unavailable', state === 'error');
+    }
+    for (const id of ['calendarNew', 'mobileAddFab']) {
+        const button = document.getElementById(id);
+        if (button) { button.disabled = state !== 'ready'; button.title = state === 'ready' ? 'Nuovo appuntamento' : 'Attendi il caricamento dell’agenda'; }
+    }
+}
+
+async function loadCalendarEvents(fetchInfo, successCallback, failureCallback) {
+    const sequence = ++calendarReadSequence;
+    setCalendarReadState('loading', 'Aggiornamento agenda…');
+    try {
+        const events = await fetchJsonOrThrow(buildAppuntamentiUrl(fetchInfo), { cache: 'no-store' });
+        if (!Array.isArray(events)) throw new Error('Risposta calendario non valida');
+        if (sequence === calendarReadSequence) {
+            setCalendarReadState('ready', events.length ? '' : 'Nessun appuntamento nel periodo con i filtri selezionati.');
+        }
+        successCallback(events);
+    } catch (_) {
+        if (sequence === calendarReadSequence) setCalendarReadState('error', 'Agenda non aggiornata. La disponibilità non è verificata.');
+        failureCallback(new Error('Impossibile caricare il calendario'));
+    }
+}
+
+function updateCalendarToolbar(info) {
+    hideCalendarPreview();
+    const title = document.getElementById('calendarTitle');
+    const date = document.getElementById('calendarDate');
+    if (title) title.textContent = info.view.title;
+    if (date) date.value = formatDateForInput(info.view.calendar.getDate());
+    for (const [id, type] of [['calendarViewDay', 'timeGridDay'], ['calendarViewWeek', 'timeGridWeek']]) {
+        document.getElementById(id)?.setAttribute('aria-pressed', String(info.view.type === type));
+    }
+}
+
+function initializeCalendarControls() {
+    const actions = {
+        calendarPrev: () => calendar.prev(), calendarNext: () => calendar.next(), calendarToday: () => calendar.today(),
+        calendarViewDay: () => calendar.changeView('timeGridDay'), calendarViewWeek: () => calendar.changeView('timeGridWeek'),
+        calendarRetry: () => calendar.refetchEvents(),
+        calendarNew: () => { if (calendarReadState !== 'ready') return; impostaSelezioneDaData(calcolaStartDefaultPerMobile()); apriModal(); }
+    };
+    for (const [id, action] of Object.entries(actions)) document.getElementById(id)?.addEventListener('click', action);
+    document.getElementById('calendarDate')?.addEventListener('change', event => {
+        if (event.target.value && event.target.validity.valid) calendar.gotoDate(event.target.value);
+    });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') hideCalendarPreview(); });
+    window.addEventListener('scroll', hideCalendarPreview, true);
+    window.addEventListener('resize', hideCalendarPreview);
+}
+
+function renderCalendarFilterChips() {
+    const container = document.getElementById('calendarActiveFilters');
+    if (!container) return;
+    container.replaceChildren();
+    const fields = { stato: ['Stato', 'filtroStato'], servizio_id: ['Servizio', 'filtroServizio'],
+        cliente: ['Cliente', 'filtroCliente'], data_da: ['Dal', 'filtroDataDa'], data_a: ['Al', 'filtroDataA'] };
+    for (const [key, [label, id]] of Object.entries(fields)) {
+        const value = filtriCalendario[key];
+        if (!value) continue;
+        const input = document.getElementById(id);
+        const displayed = key === 'stato' ? CALENDAR_STATES[value] || value
+            : key === 'servizio_id' ? input?.selectedOptions?.[0]?.textContent || value
+            : key.startsWith('data_') ? value.split('-').reverse().join('/') : value;
+        const button = calendarTextElement('button', 'calendar-filter-chip', `${label}: ${displayed} ×`);
+        button.type = 'button';
+        button.setAttribute('aria-label', `Rimuovi filtro ${label}: ${displayed}`);
+        button.addEventListener('click', () => {
+            clearTimeout(filtroClienteDebounceTimer);
+            if (input) input.value = '';
+            aggiornaFiltriCalendarioDaUI(true);
+            document.getElementById('toggleFiltriCalendario')?.focus();
+        });
+        container.appendChild(button);
+    }
+    const count = document.getElementById('calendarFilterCount');
+    if (count) { count.hidden = !container.children.length; count.textContent = String(container.children.length); }
+}
 
 async function aggiornaContatorePacchetti() {
     const counter = document.getElementById('dashboardPacchettiCount');
@@ -78,8 +349,10 @@ function creaFabMobile() {
     fab.className = "mobile-add-fab";
     fab.setAttribute("aria-label", "Nuovo appuntamento");
     fab.textContent = "+";
+    fab.disabled = calendarReadState !== 'ready';
 
     fab.addEventListener("click", function() {
+        if (calendarReadState !== 'ready') return;
         impostaSelezioneDaData(calcolaStartDefaultPerMobile());
         apriModal();
     });
@@ -444,7 +717,9 @@ function getSettimanaRange(baseDate) {
     const monday = new Date(baseDate);
     monday.setDate(baseDate.getDate() + diffToMonday);
     monday.setHours(0, 0, 0, 0);
-    const sundayExclusive = new Date(monday.getTime() + 7 * 86400000);
+    // Calendar days, not fixed 24-hour periods: Rome changes DST on Sundays.
+    const sundayExclusive = new Date(monday);
+    sundayExclusive.setDate(monday.getDate() + 7);
     return { monday, sundayExclusive };
 }
 
@@ -494,6 +769,7 @@ function aggiornaFiltriCalendarioDaUI(refetch = true) {
         data_da: dataDa,
         data_a: dataA
     };
+    renderCalendarFilterChips();
 
     if (refetch && calendar) {
         calendar.refetchEvents();
@@ -501,6 +777,7 @@ function aggiornaFiltriCalendarioDaUI(refetch = true) {
 }
 
 function resetFiltriCalendario() {
+    clearTimeout(filtroClienteDebounceTimer);
     const filtroStato = document.getElementById("filtroStato");
     const filtroServizio = document.getElementById("filtroServizio");
     const filtroCliente = document.getElementById("filtroCliente");
@@ -514,6 +791,7 @@ function resetFiltriCalendario() {
     if (filtroDataA) filtroDataA.value = "";
 
     filtriCalendario = { ...FILTRI_CALENDARIO_DEFAULT };
+    renderCalendarFilterChips();
     if (calendar) calendar.refetchEvents();
 }
 
@@ -569,14 +847,9 @@ document.addEventListener('DOMContentLoaded', function () {
     document.body.classList.toggle("mobile-calendar-mode", mobileMode);
 
     calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: 'timeGridWeek',
-firstDay: 1,   // Settimana che parte da Lunedì
-
-headerToolbar: {
-    left: 'prev,next today',
-    center: 'title',
-    right: 'timeGridWeek,timeGridDay'
-},
+        initialView: mobileMode ? 'timeGridDay' : 'timeGridWeek',
+        firstDay: 1,
+        headerToolbar: false,
 
 buttonText: {
     today: 'Oggi',
@@ -595,11 +868,19 @@ buttonText: {
         rerenderDelay: 50,
         initialDate: new Date(),
         locale: 'it',
-        selectable: true,
+        allDayText: 'Tutto il giorno',
+        selectable: !mobileMode,
         selectMirror: true, // mostra anteprima evento mentre trascini (stile Apple Calendar)
         editable: !mobileMode,
         eventStartEditable: !mobileMode,
         eventDurationEditable: !mobileMode,
+        eventAllow: () => calendarReadState === 'ready',
+        windowResize: function() {
+            const mobile = isMobileViewport();
+            document.body.classList.toggle('mobile-calendar-mode', mobile);
+            for (const option of ['editable', 'eventStartEditable', 'eventDurationEditable', 'selectable']) calendar.setOption(option, !mobile);
+            if (mobile) creaFabMobile();
+        },
         longPressDelay: mobileMode ? 120 : 300,
         eventLongPressDelay: mobileMode ? 120 : 300,
         selectLongPressDelay: mobileMode ? 120 : 300,
@@ -626,22 +907,13 @@ buttonText: {
             }
         ],
 
-        events: function(fetchInfo, successCallback, failureCallback) {
-            fetch(buildAppuntamentiUrl(fetchInfo), {
-                cache: "no-store"
-            })
-                .then(r => r.json())
-                .then(successCallback)
-                .catch(error => {
-                    console.error("Errore caricamento eventi:", error);
-                    failureCallback(error);
-                });
-        },
+        events: loadCalendarEvents,
 
         // Preview visivo mentre trascini per creare appuntamento
-        selectAllow: () => true,
+        selectAllow: () => calendarReadState === 'ready',
 
         select: function(info) {
+            if (calendarReadState !== 'ready') return;
             selectedStart = formatDateTimeForApi(info.start);
 
             // Se selezione troppo breve o click singolo → default 60 minuti
@@ -656,142 +928,32 @@ buttonText: {
         },
 
         dateClick: function(info) {
-            if (!mobileMode) return;
+            if (!isMobileViewport() || calendarReadState !== 'ready') return;
             impostaSelezioneDaData(info.date);
             apriModal();
         },
 
-        eventClick: function(info) {
-            if (mobileMode) {
-                info.jsEvent?.preventDefault?.();
-                return;
-            }
-            window.eventoSelezionato = info.event;
-            apriModificaModal();
-        },
+        eventClick: openCalendarAppointment,
 
         eventDrop: info => aggiornaOrario(info),
         eventResize: info => aggiornaOrario(info),
+        eventDragStart: hideCalendarPreview,
+        eventResizeStart: hideCalendarPreview,
 
-        eventContent: function(arg) {
-            // Handle preview while dragging (mirror event)
-            if (arg.isMirror) {
-                const wrapper = document.createElement("div");
-                wrapper.style.fontSize = "12px";
-                wrapper.style.fontWeight = "600";
-                wrapper.style.opacity = "0.8";
-                wrapper.style.color = "#000000"; // testo nero per anteprima
-
-                const start = arg.event.start;
-                const end = arg.event.end;
-
-                if (start && end) {
-                    const startStr = start.toTimeString().slice(0,5);
-                    const endStr = end.toTimeString().slice(0,5);
-                    wrapper.textContent = `${startStr} – ${endStr}`;
-                } else {
-                    wrapper.textContent = "Nuovo appuntamento";
-                }
-
-                return { domNodes: [wrapper] };
-            }
-            const occupato = !!arg.event.extendedProps?.occupato;
-            const clienti = arg.event.extendedProps?.clienti || "";
-            const servizio = arg.event.extendedProps?.servizio || "";
-
-            const wrapper = document.createElement("div");
-            wrapper.style.display = "flex";
-            wrapper.style.flexDirection = "column";
-            wrapper.style.gap = "2px";
-
-            const nomeEl = document.createElement("div");
-            nomeEl.className = "fc-event-title";
-            // Formattazione nomi clienti (es: "👥 Monica + Angela")
-            let displayClienti = occupato ? "Occupato" : clienti;
-
-            if (!occupato && clienti.includes("+")) {
-                const parti = clienti.split("+").map(n => n.trim());
-
-                const firstNames = parti.map(nomeCompleto => {
-                    const parts = nomeCompleto.split(" ");
-                    return parts[0];
-                });
-
-                displayClienti = `👥 ${firstNames.join(" + ")}`;
-            }
-
-            nomeEl.textContent = displayClienti;
-            nomeEl.style.fontWeight = "600";
-            nomeEl.style.letterSpacing = "0.2px";
-
-            const servizioEl = document.createElement("div");
-            servizioEl.textContent = servizio;
-            servizioEl.className = "fc-event-service";
-            servizioEl.style.opacity = "0.85";
-
-            wrapper.appendChild(nomeEl);
-            if (servizio && !occupato) {
-                wrapper.appendChild(servizioEl);
-            }
-
-            return { domNodes: [wrapper] };
+        displayEventTime: false,
+        eventContent: renderCalendarEvent,
+        eventDidMount: mountCalendarEvent,
+        eventMouseEnter: showCalendarPreview,
+        eventMouseLeave: scheduleHideCalendarPreview,
+        eventWillUnmount: info => {
+            info.el.calendarObserver?.disconnect();
+            if (calendarPreviewAnchor === info.el) hideCalendarPreview();
         },
-        eventDidMount: function(info) {
-            // 🎯 Preview evento mentre trascini per creare appuntamento
-            if (info.isMirror) {
-                info.el.style.backgroundColor = "rgba(107,114,128,0.25)"; // grigio soft trasparente
-                info.el.style.border = "1px dashed rgba(55,65,81,0.6)";
-                info.el.style.color = "#111827";
-                info.el.style.boxShadow = "none";
-                return; // evita applicazione colori servizio
-            }
-
-            const occupato = !!info.event.extendedProps?.occupato;
-            if (occupato) {
-                info.el.style.backgroundColor = "#dc2626";
-                info.el.style.borderColor = "#b91c1c";
-                info.el.style.color = "#ffffff";
-                return;
-            }
-
-            const servizio = info.event.extendedProps?.servizio;
-            if (!servizio) return;
-
-            const coloreServizio = getColoreServizio(servizio);
-            info.el.style.backgroundColor = coloreServizio;
-            info.el.style.borderColor = "rgba(255,255,255,0.22)";
-
-            // Testo sempre bianco per contrasto
-            info.el.style.color = "#ffffff";
-
-            // ✔ Badge minimal reminder WhatsApp inviato
-            if (info.event.extendedProps?.reminder_whatsapp) {
-
-                const badge = document.createElement("div");
-                badge.textContent = "✔";
-
-                badge.style.position = "absolute";
-                badge.style.top = "4px";
-                badge.style.right = "6px";
-                badge.style.width = "16px";
-                badge.style.height = "16px";
-                badge.style.borderRadius = "50%";
-                badge.style.display = "flex";
-                badge.style.alignItems = "center";
-                badge.style.justifyContent = "center";
-                badge.style.fontSize = "10px";
-                badge.style.fontWeight = "700";
-                badge.style.background = "rgba(255,255,255,0.95)";
-                badge.style.color = "#2a9d8f";
-                badge.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
-
-                info.el.style.position = "relative";
-                info.el.appendChild(badge);
-            }
-        },
+        datesSet: updateCalendarToolbar,
     });
 
     calendar.render();
+    initializeCalendarControls();
     inizializzaFiltriCalendario();
 
     function aggiornaDashboardOggi() {
@@ -819,47 +981,10 @@ buttonText: {
             });
     }
 
-    function aggiornaDashboardSettimana() {
-
-        const eventi = calendar.getEvents();
-        const oggi = calendar.getDate(); // usa la settimana visualizzata nel calendario
-
-        const { monday, sundayExclusive } = getSettimanaRange(oggi);
-
-        let count = 0;
-
-        eventi.forEach(evento => {
-
-            // Ignora eventi di background (es. fascia pranzo)
-            if (evento.display === 'background') return;
-
-            const dataEvento = evento.start;
-
-            if (dataEvento >= monday && dataEvento < sundayExclusive) {
-                count++; // conta 1 appuntamento per evento (non per slot)
-            }
-        });
-
-        const weekEl = document.getElementById("weekCount");
-        if (weekEl) weekEl.textContent = count;
-
-        // 🔥 Range settimana dinamico (Lun - Dom)
-        const options = { day: '2-digit', month: 'short' };
-        const lunediLabel = monday.toLocaleDateString('it-IT', options);
-        const domenica = new Date(sundayExclusive.getTime() - 86400000);
-        const domenicaLabel = domenica.toLocaleDateString('it-IT', options);
-
-        const weekSub = document.getElementById("weekRangeLabel");
-        if (weekSub) {
-            weekSub.textContent = `${lunediLabel} – ${domenicaLabel}`;
-            weekSub.classList.remove("week-range-animate");
-            requestAnimationFrame(() => weekSub.classList.add("week-range-animate"));
-        }
-    }
-
-    calendar.on('eventsSet', aggiornaDashboardSettimana);
+    calendar.on('eventsSet', updateCalendarWeekSummary);
     calendar.on('eventsSet', aggiornaContatorePacchetti);
-    calendar.on('datesSet', aggiornaDashboardSettimana);
+    calendar.on('datesSet', updateCalendarWeekSummary);
+    updateCalendarWeekSummary();
 
     // ===============================
     // AUTO OPEN EVENT FROM URL (?open_event=ID)
@@ -868,7 +993,7 @@ buttonText: {
     const params = new URLSearchParams(window.location.search);
     const openEventId = params.get("open_event");
 
-    if (openEventId && !mobileMode) {
+    if (openEventId) {
         let autoOpenHandled = false;
         const cleanUrl = window.location.origin + window.location.pathname;
 
@@ -888,9 +1013,6 @@ buttonText: {
 
         calendar.on('eventsSet', tryAutoOpenEventFromUrl);
         tryAutoOpenEventFromUrl();
-    } else if (openEventId && mobileMode) {
-        const cleanUrl = window.location.origin + window.location.pathname;
-        window.history.replaceState({}, document.title, cleanUrl);
     }
 
     caricaClienti(); // ora carica array per ricerca
@@ -967,6 +1089,7 @@ buttonText: {
     const dashboardAppModalTitle = document.getElementById("dashboardAppModalTitle");
     const dashboardAppModalSubtitle = document.getElementById("dashboardAppModalSubtitle");
     const dashboardAppList = document.getElementById("dashboardAppList");
+    let dashboardListSequence = 0;
 
     const statoLabelMap = {
         prenotato: "Prenotato",
@@ -1070,10 +1193,12 @@ buttonText: {
     }
 
     async function apriDashboardAppuntamentiOggi() {
+        const sequence = ++dashboardListSequence;
         const oggi = new Date();
         const inizioGiorno = new Date(oggi);
         inizioGiorno.setHours(0, 0, 0, 0);
-        const fineGiorno = new Date(inizioGiorno.getTime() + 86400000);
+        const fineGiorno = new Date(inizioGiorno);
+        fineGiorno.setDate(fineGiorno.getDate() + 1);
 
         const subtitle = oggi.toLocaleDateString("it-IT", {
             weekday: "long",
@@ -1098,6 +1223,7 @@ buttonText: {
                 { cache: "no-store" },
                 "Errore caricamento appuntamenti di oggi"
             );
+            if (sequence !== dashboardListSequence) return;
 
             const appuntamenti = (Array.isArray(data) ? data : [])
                 .map(normalizzaEventoDashboard)
@@ -1106,15 +1232,18 @@ buttonText: {
 
             renderDashboardListaAppuntamenti(appuntamenti, "Nessun appuntamento per oggi.");
         } catch (error) {
+            if (sequence !== dashboardListSequence) return;
             renderDashboardListaAppuntamenti([], "Errore caricamento appuntamenti.");
             mostraToast(error.message || "Errore caricamento appuntamenti di oggi", "error");
         }
     }
 
-    function apriDashboardAppuntamentiSettimana() {
+    async function apriDashboardAppuntamentiSettimana() {
+        const sequence = ++dashboardListSequence;
         const riferimento = calendar.getDate();
         const { monday, sundayExclusive } = getSettimanaRange(riferimento);
-        const domenica = new Date(sundayExclusive.getTime() - 86400000);
+        const domenica = new Date(sundayExclusive);
+        domenica.setDate(domenica.getDate() - 1);
 
         const subtitle = `${monday.toLocaleDateString("it-IT", { day: "2-digit", month: "short" })} - ${domenica.toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" })}`;
 
@@ -1123,14 +1252,16 @@ buttonText: {
             subtitle: subtitle
         });
 
-        const appuntamenti = calendar.getEvents()
-            .filter(evento => evento.display !== "background")
-            .map(normalizzaEventoDashboard)
-            .filter(Boolean)
-            .filter(evento => evento.start >= monday && evento.start < sundayExclusive)
-            .sort((a, b) => a.start - b.start);
-
-        renderDashboardListaAppuntamenti(appuntamenti, "Nessun appuntamento nella settimana corrente.");
+        renderDashboardListaAppuntamenti([], 'Caricamento settimana…');
+        try {
+            const events = await fetchCalendarWeekEvents(riferimento);
+            if (sequence !== dashboardListSequence) return;
+            const appuntamenti = events.map(normalizzaEventoDashboard).filter(Boolean).sort((a, b) => a.start - b.start);
+            renderDashboardListaAppuntamenti(appuntamenti, 'Nessun appuntamento nella settimana corrente.');
+        } catch (_) {
+            if (sequence !== dashboardListSequence) return;
+            renderDashboardListaAppuntamenti([], 'Elenco non disponibile. Chiudi e riprova.');
+        }
     }
 
     if (openAppuntamentiOggiBtn) {
