@@ -207,7 +207,7 @@
             <span id="calendarStatusText"></span>
             <button type="button" id="calendarRetry" hidden>Riprova</button>
         </div>
-        <p class="mobile-calendar-hint">
+        <p class="mobile-calendar-hint" id="mobileCalendarHint">
             Tocca uno spazio libero per creare. Tocca un appuntamento per aprirlo.
         </p>
         <div id="calendar"></div>
@@ -418,9 +418,11 @@
     <div id="modificaModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editAppointmentTitle">
     <div class="modal-content modal-card-premium modal-shell edit-appointment-card">
         <div class="edit-appointment-heading">
-            <div><span class="edit-eyebrow">Modifica appuntamento</span><h3 id="editAppointmentTitle">Appuntamento</h3><p id="editAppointmentMeta" class="edit-help"></p></div>
-            <button type="button" class="edit-close" onclick="chiudiModificaModal()" aria-label="Chiudi modifica appuntamento">×</button>
+            <div><span class="edit-eyebrow">Dettagli appuntamento</span><h3 id="editAppointmentTitle">Appuntamento</h3><p id="editAppointmentMeta" class="edit-help"></p></div>
+            <button type="button" id="closeEditAppointment" class="edit-close" onclick="chiudiModificaModal()" aria-label="Chiudi dettagli appuntamento">×</button>
         </div>
+
+        <div class="edit-appointment-summary"><span id="editAppointmentWhen"></span><span id="editAppointmentState" class="edit-state-badge"></span></div>
 
         <div class="edit-schedule-grid">
             <div><label for="dataModifica">Data</label><input type="date" id="dataModifica" class="input-apple"></div>
@@ -441,7 +443,6 @@
             <div id="confermeEmailList" aria-live="polite"></div>
         </section>
 
-        <div class="modal-footer modal-footer-vertical">
             <div class="promemoria-tools">
                 <button type="button"
                         class="btn-promemoria"
@@ -495,6 +496,7 @@
                 </div>
                 <div id="whatsappDestinatari" class="whatsapp-recipients" hidden aria-live="polite"></div>
             </div>
+        <div class="modal-footer modal-footer-vertical">
             <button type="button" id="btnSalvaModifiche" class="btn-apple-primary" onclick="salvaModifiche()">Salva modifiche</button>
             <button type="button" id="btnEliminaEvento" class="btn-apple-ghost btn-danger" onclick="eliminaEvento()">Elimina appuntamento</button>
         </div>

@@ -520,3 +520,90 @@ test('Calendar configuration starts phones in day view with taps enabled and acc
         assert.equal(options.eventAllow(), false);
     }
 });
+
+test('Mobile day and week layouts keep their own sizing, scroll hint and horizontal position', () => {
+    const { context, nodes } = mainContext();
+    nodes.calendar = new Element(); nodes.mobileCalendarHint = new Element();
+    context.window.matchMedia = () => ({ matches: true });
+    context.updateMobileCalendarLayout('timeGridWeek');
+    assert.equal(nodes.calendar.classes.has('is-mobile-week'), true);
+    assert.match(nodes.mobileCalendarHint.textContent, /Scorri a destra o sinistra/);
+    nodes.calendar.scrollLeft = 300;
+    context.updateMobileCalendarLayout('timeGridWeek');
+    assert.equal(nodes.calendar.scrollLeft, 300, 'Resize must preserve the viewed days');
+    context.updateMobileCalendarLayout('timeGridDay');
+    assert.equal(nodes.calendar.scrollLeft, 0);
+    assert.equal(nodes.calendar.classes.has('is-mobile-week'), false);
+    assert.equal(nodes.calendar.classes.has('is-mobile-day'), true);
+    assert.match(nodes.mobileCalendarHint.textContent, /dettagli e modifiche/);
+    context.window.matchMedia = () => ({ matches: false });
+    context.updateMobileCalendarLayout('timeGridDay');
+    assert.equal(nodes.calendar.classes.has('is-mobile-day'), false);
+});
+
+function appointmentDetailsContext() {
+    const { context, nodes } = mainContext();
+    for (const id of ['editAppointmentTitle', 'editAppointmentMeta', 'editAppointmentWhen', 'editAppointmentState',
+        'dataModifica', 'oraInizioModifica', 'oraFineModifica', 'noteModifica', 'modificaModal',
+        'whatsappDestinatari', 'confermeEmailSection', 'closeEditAppointment', 'btnSalvaModifiche']) nodes[id] = new Element();
+    const card = new Element(); card.scrollTop = 400;
+    nodes.modificaModal.querySelector = () => card;
+    context.window.matchMedia = () => ({ matches: true });
+    context.caricaConfermeEmail = () => {};
+    context.fetch = () => assert.fail('Opening details must never write or send');
+    return { context, nodes, card };
+}
+
+test('A phone tap opens real editable details for both people, focuses Close and restores scrolling on dismissal', () => {
+    const { context, nodes, card } = appointmentDetailsContext();
+    const event = calendarTestEvent({ clienti_ids: ['101', '202'], note: 'Nota già salvata' });
+    const anchor = new Element(); anchor.isConnected = true;
+    context.openCalendarAppointment({ event, el: anchor, jsEvent: { preventDefault() {} } });
+    assert.equal(nodes.modificaModal.style.display, 'block');
+    assert.equal(context.document.body.classes.has('appointment-detail-open'), true);
+    assert.equal(nodes.closeEditAppointment.focused, true);
+    assert.equal(card.scrollTop, 0);
+    assert.match(nodes.editAppointmentTitle.children[0].textContent, /Mario Rossi/);
+    assert.match(nodes.editAppointmentTitle.children[2].textContent, /Anna Bianchi/);
+    assert.match(nodes.editAppointmentMeta.textContent, /Seduta 3\/10/);
+    assert.match(nodes.editAppointmentWhen.textContent, /10:00.*11:00.*60 min/);
+    assert.equal(nodes.editAppointmentState.textContent, 'Prenotato');
+    assert.equal(nodes.dataModifica.value, '2026-11-11');
+    assert.equal(nodes.oraInizioModifica.value, '10:00');
+    assert.equal(nodes.oraFineModifica.value, '11:00');
+    assert.equal(nodes.noteModifica.value, 'Nota già salvata');
+    context.chiudiModificaModal();
+    assert.equal(nodes.modificaModal.style.display, 'none');
+    assert.equal(context.document.body.classes.has('appointment-detail-open'), false);
+    assert.equal(anchor.focused, true);
+});
+
+test('Occupied slots open editable details without email queries; background slots are not appointments', () => {
+    const { context, nodes } = appointmentDetailsContext();
+    context.caricaConfermeEmail = () => assert.fail('Occupied slots have no confirmation recipients');
+    context.openCalendarAppointment({ event: calendarTestEvent({ occupato: true, stato: 'occupato' }) });
+    assert.equal(nodes.editAppointmentTitle.textContent, 'Occupato');
+    assert.equal(nodes.confermeEmailSection.hidden, true);
+    assert.equal(nodes.editAppointmentMeta.textContent, 'Slot non disponibile');
+    context.chiudiModificaModal();
+    context.openCalendarAppointment({ event: { display: 'background' } });
+    assert.equal(nodes.modificaModal.style.display, 'none');
+});
+
+test('Phone detail edits use the existing save path and never send email automatically', async () => {
+    const { context, nodes } = appointmentDetailsContext();
+    context.openCalendarAppointment({ event: calendarTestEvent() });
+    nodes.noteModifica.value = 'Nota aggiornata';
+    const requests = [];
+    context.fetchJsonOrThrow = async (url, options) => { requests.push({ url, method: options.method, body: JSON.parse(options.body) }); return { success: true }; };
+    context.window.refreshed = false;
+    vm.runInContext('calendar = { refetchEvents() { window.refreshed = true; } };', context);
+    await context.salvaModifiche();
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, '/api/appuntamenti/42');
+    assert.equal(requests[0].method, 'PUT');
+    assert.equal(requests[0].body.note, 'Nota aggiornata');
+    assert.equal(requests[0].body.invia_conferma_email, undefined);
+    assert.equal(context.window.refreshed, true);
+    assert.equal(nodes.modificaModal.style.display, 'none');
+});

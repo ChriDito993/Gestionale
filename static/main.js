@@ -31,6 +31,7 @@ let calendarReadState = 'ready';
 let calendarPreviewToken = 0;
 let calendarPreviewTimer;
 let calendarPreviewAnchor;
+let calendarReturnFocus;
 let calendarWeekSequence = 0;
 
 async function fetchCalendarWeekEvents(baseDate) {
@@ -203,10 +204,28 @@ function mountCalendarEvent(info) {
 }
 
 function openCalendarAppointment(info) {
+    if (!info.event || info.event.display === 'background') return;
     info.jsEvent?.preventDefault?.();
     hideCalendarPreview();
+    calendarReturnFocus = info.el || null;
     window.eventoSelezionato = info.event;
     apriModificaModal();
+}
+
+function updateMobileCalendarLayout(viewType) {
+    const element = document.getElementById('calendar');
+    if (!element) return;
+    const mobile = isMobileViewport();
+    const week = mobile && viewType === 'timeGridWeek';
+    const day = mobile && viewType === 'timeGridDay';
+    const previousWeek = element.classList.contains('is-mobile-week');
+    element.classList.toggle('is-mobile-week', week);
+    element.classList.toggle('is-mobile-day', day);
+    if (previousWeek !== week) element.scrollLeft = 0;
+    const hint = document.getElementById('mobileCalendarHint');
+    if (hint) hint.textContent = week
+        ? 'Scorri a destra o sinistra per vedere i giorni. Tocca un appuntamento per dettagli e modifiche.'
+        : 'Tocca un appuntamento per dettagli e modifiche. Tocca uno spazio libero per crearne uno.';
 }
 
 function setCalendarReadState(state, message = '') {
@@ -245,6 +264,7 @@ async function loadCalendarEvents(fetchInfo, successCallback, failureCallback) {
 
 function updateCalendarToolbar(info) {
     hideCalendarPreview();
+    updateMobileCalendarLayout(info.view.type);
     const title = document.getElementById('calendarTitle');
     const date = document.getElementById('calendarDate');
     if (title) title.textContent = info.view.title;
@@ -879,6 +899,7 @@ buttonText: {
             const mobile = isMobileViewport();
             document.body.classList.toggle('mobile-calendar-mode', mobile);
             for (const option of ['editable', 'eventStartEditable', 'eventDurationEditable', 'selectable']) calendar.setOption(option, !mobile);
+            updateMobileCalendarLayout(calendar.view.type);
             if (mobile) creaFabMobile();
         },
         longPressDelay: mobileMode ? 120 : 300,
@@ -1954,8 +1975,12 @@ function apriModificaModal() {
         titolo.textContent = extended.occupato ? 'Occupato' : nomi.join(' + ') || 'Appuntamento';
     }
     const meta = document.getElementById('editAppointmentMeta');
-    if (meta) meta.textContent = (extended.servizio || '') + (extended.numero_seduta ? ' · Seduta ' + extended.numero_seduta : '');
+    if (meta) meta.textContent = [extended.occupato ? 'Slot non disponibile' : extended.servizio, calendarSessionLabel(extended)].filter(Boolean).join(' · ');
     const end = evento.end || new Date(evento.start.getTime() + DEFAULT_APPOINTMENT_MINUTES * 60000);
+    const when = document.getElementById('editAppointmentWhen');
+    if (when) when.textContent = `${formatDateLabel(evento.start)} · ${formatTimeHm(evento.start)} – ${formatTimeHm(end)} · ${Math.round((end - evento.start) / 60000)} min`;
+    const state = document.getElementById('editAppointmentState');
+    if (state) state.textContent = CALENDAR_STATES[extended.stato] || 'Appuntamento';
     document.getElementById('dataModifica').value = formatDateForInput(evento.start);
     document.getElementById('oraInizioModifica').value = formatTimeForInput(evento.start);
     document.getElementById('oraFineModifica').value = formatTimeForInput(end);
@@ -1965,7 +1990,14 @@ function apriModificaModal() {
     const whatsapp = document.getElementById('whatsappDestinatari');
     if (whatsapp) { whatsapp.hidden = true; whatsapp.replaceChildren(); }
     document.getElementById('confermeEmailSection').hidden = !!extended.occupato;
-    requestAnimationFrame(() => { modal.style.display = 'block'; modal.classList.add('modal-active'); });
+    requestAnimationFrame(() => {
+        modal.style.display = 'block';
+        modal.classList.add('modal-active');
+        document.body.classList.add('appointment-detail-open');
+        const card = modal.querySelector('.edit-appointment-card');
+        if (card) card.scrollTop = 0;
+        document.getElementById('closeEditAppointment')?.focus({ preventScroll: true });
+    });
     if (!extended.occupato) caricaConfermeEmail(evento.id);
 }
 function chiudiModificaModal() {
@@ -1973,8 +2005,13 @@ function chiudiModificaModal() {
     if (!modal) return;
 
     autoClosePromemoria();
+    document.body.classList.remove('appointment-detail-open');
     modal.classList.remove("modal-active");
-    requestAnimationFrame(() => modal.style.display = "none");
+    requestAnimationFrame(() => {
+        modal.style.display = "none";
+        if (calendarReturnFocus?.isConnected) calendarReturnFocus.focus({ preventScroll: true });
+        calendarReturnFocus = null;
+    });
 }
 
 function chiudiDashboardAppModal() {

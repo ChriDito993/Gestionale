@@ -24,6 +24,8 @@
 #modificaModal #editAppointmentTitle a:hover { color: #21867a; text-decoration: underline; }
 .edit-eyebrow, .edit-help { color: #6b7280; font-size: 12px; line-height: 1.5; }
 .edit-help { margin: 5px 0 10px; }
+.edit-appointment-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 12px; border-radius: 10px; background: #f1f6f5; color: #334155; font-size: 12px; line-height: 1.5; }
+.edit-state-badge { border: 1px solid #d5e4de; background: #fff; border-radius: 6px; padding: 3px 7px; font-size: 11px; white-space: nowrap; }
 .edit-close { flex-shrink: 0; width: 36px; height: 36px; border: 1px solid #e5e7eb; border-radius: 10px; background: #f9fafb; color: #6b7280; font-size: 24px; cursor: pointer; }
 .edit-schedule-grid { display: grid; grid-template-columns: minmax(0,1.4fr) repeat(2,minmax(0,1fr)); gap: 10px; }
 .edit-schedule-grid > div { min-width: 0; }
@@ -93,4 +95,55 @@
     .edit-schedule-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .edit-schedule-grid > div:first-child { grid-column: 1 / -1; }
     .confirmation-person { flex-wrap: wrap; }
+}
+
+/* Phone agenda: keep real slot heights and provide full-width, tappable details. */
+@media (max-width: 900px) {
+    .gestionale-dashboard .calendar-wrapper { min-width: 0; padding: 12px; }
+    .gestionale-dashboard #calendar {
+        width: 100%; min-width: 0; max-width: 100%;
+        height: min(72vh, 780px); height: min(72svh, 780px); min-height: 400px;
+        overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
+    }
+    .gestionale-dashboard #calendar.is-mobile-week > .fc-view-harness { min-width: 924px; }
+    .gestionale-dashboard #calendar .fc-scroller { overscroll-behavior-y: auto; }
+    .gestionale-dashboard #calendar .fc-timegrid-slot { height: 56px !important; }
+    .gestionale-dashboard #calendar .fc-timegrid-axis { width: 44px; font-size: 11px; }
+    .gestionale-dashboard #calendar .fc-col-header-cell { padding: 6px 0 !important; }
+    .gestionale-dashboard #calendar .calendar-appointment { touch-action: manipulation; -webkit-tap-highlight-color: rgba(15,118,110,.18); }
+    .gestionale-dashboard #calendar.is-mobile-day .calendar-event-name { font-size: 14px; }
+    .gestionale-dashboard #calendar.is-mobile-day .calendar-event-time { font-size: 11px; }
+    .gestionale-dashboard #calendar.is-mobile-day .calendar-event-service { font-size: 12px; }
+    .gestionale-dashboard #calendar.is-mobile-day .calendar-event-meta span { font-size: 10px; }
+    .gestionale-dashboard #calendar.is-mobile-day .is-tiny .calendar-event-name { font-size: 12px; }
+    .gestionale-dashboard #calendar.is-mobile-day .is-tiny .calendar-event-time { font-size: 10px; }
+    .gestionale-dashboard .calendar-command-bar { gap: 10px 8px; }
+    .gestionale-dashboard .calendar-heading h2 { font-size: 18px; line-height: 1.3; }
+    .gestionale-dashboard .mobile-calendar-hint { margin-bottom: 10px; font-size: 11px; line-height: 1.5; letter-spacing: 0; }
+    .gestionale-dashboard .mobile-add-fab { bottom: calc(18px + env(safe-area-inset-bottom, 0px)); }
+    body.appointment-detail-open { overflow: hidden; }
+    #modificaModal { overflow: hidden; padding: 0; }
+    #modificaModal .edit-appointment-card {
+        position: absolute; bottom: 0; left: 0; right: 0;
+        width: 100%; max-width: 100%; box-sizing: border-box;
+        margin: 0; padding: 18px 16px 0; gap: 14px;
+        max-height: 94vh; max-height: 94dvh;
+        border-radius: 20px 20px 0 0; overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        scroll-padding-block: 60px 90px;
+    }
+    #modificaModal .edit-appointment-heading { align-items: flex-start; }
+    #modificaModal #editAppointmentTitle { font-size: 19px; overflow-wrap: anywhere; }
+    #modificaModal .edit-close { width: 44px; height: 44px; }
+    #modificaModal .edit-appointment-card .input-apple { font-size: 16px; min-height: 44px; box-sizing: border-box; width: 100%; }
+    #modificaModal .edit-schedule-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #modificaModal .edit-schedule-grid > div:first-child { grid-column: 1 / -1; }
+    #modificaModal .edit-appointment-card .modal-footer {
+        position: sticky; bottom: 0; z-index: 2;
+        margin: 0 -16px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+        background: #fff; border-top: 1px solid #e2e8eb;
+    }
+    #modificaModal .edit-appointment-card .btn-apple-primary,
+    #modificaModal .edit-appointment-card .btn-danger,
+    #modificaModal .confirmation-retry { min-height: 44px; }
 }
