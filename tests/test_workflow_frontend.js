@@ -607,3 +607,25 @@ test('Phone detail edits use the existing save path and never send email automat
     assert.equal(context.window.refreshed, true);
     assert.equal(nodes.modificaModal.style.display, 'none');
 });
+
+test('Login password visibility is optional, accessible and never changes or submits credentials', () => {
+    const password = new Element('input'); password.type = 'password'; password.value = 'a local test value';
+    const toggle = new Element('button'); toggle.hidden = true;
+    const error = new Element();
+    const nodes = { loginPassword: password, loginPasswordToggle: toggle, loginError: error };
+    const context = vm.createContext({ document: { getElementById: id => nodes[id] || null } });
+    const script = fs.readFileSync(path.join(root, 'static/login.js'), 'utf8');
+    vm.runInContext(script, context);
+    assert.equal(toggle.hidden, false);
+    assert.equal(error.focused, true);
+    toggle.listeners.click();
+    assert.equal(password.type, 'text');
+    assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(toggle.getAttribute('aria-label'), 'Nascondi password');
+    toggle.listeners.click();
+    assert.equal(password.type, 'password');
+    assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+    assert.equal(toggle.getAttribute('aria-label'), 'Mostra password');
+    assert.equal(password.value, 'a local test value');
+    vm.runInContext(script, vm.createContext({ document: { getElementById: () => null } }));
+});

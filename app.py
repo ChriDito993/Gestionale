@@ -783,31 +783,7 @@ def login():
     else:
         error = None
 
-    # Login page styled like gestionale (Apple minimal)
-    return render_template_string("""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset=\"UTF-8\">
-        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-        <title>Login - Gestionale</title>
-        <link rel=\"stylesheet\" href=\"{{ static_file('style.css') }}\">
-    </head>
-    <body style=\"display:flex;justify-content:center;align-items:center;height:100vh;background:linear-gradient(135deg,#f3f4f6,#e5e7eb);\">
-        <div class=\"detail-card\" style=\"width:380px;\">
-            <h3 style=\"margin-bottom:25px;\">Accesso Gestionale</h3>
-            <form method=\"POST\" style=\"display:flex;flex-direction:column;gap:16px;\">
-                <input type=\"email\" name=\"email\" placeholder=\"Email\" required class=\"input-apple\">
-                <input type=\"password\" name=\"password\" placeholder=\"Password\" required class=\"input-apple\">
-                <button type=\"submit\" class=\"btn-apple-primary\" style=\"width:100%;\">Accedi</button>
-            </form>
-            {% if error %}
-                <p style=\"color:#ef4444;margin-top:18px;font-size:14px;\">{{ error }}</p>
-            {% endif %}
-        </div>
-    </body>
-    </html>
-    """, error=error)
+    return render_template("login.html", error=error)
 
 @app.route("/logout")
 @login_required

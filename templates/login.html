@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#182a35">
+    <title>Accedi · Massoterapia &amp; PT</title>
+    <link rel="icon" type="image/png" href="{{ static_file('favicon-32.png') }}">
+    <link rel="apple-touch-icon" href="{{ static_file('pwa-icon.png') }}">
+    <link rel="stylesheet" href="{{ static_file('login.css') }}">
+    <script src="{{ static_file('login.js') }}" defer></script>
+</head>
+<body>
+    <main class="login-shell">
+        <section class="login-brand" aria-labelledby="studioTitle">
+            <div class="login-brand-identity">
+                <img class="login-logo" src="{{ static_file('logo.png') }}" alt="Logo Massoterapia e PT">
+                <div><p id="studioTitle" class="login-studio">Massoterapia &amp; PT</p><p class="login-owner">Christian Di Tommaso</p></div>
+            </div>
+
+            <div class="login-brand-story">
+                <span class="login-eyebrow">IL TUO SPAZIO DI LAVORO</span>
+                <h1>Il tuo studio,<br>in perfetto <span>equilibrio.</span></h1>
+                <p>Più ordine nella tua giornata.<br>Più spazio per le persone.</p>
+            </div>
+
+            <div class="login-brand-footer">
+                <div class="login-workflow" aria-label="Il gestionale dello studio">
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 11h18m-13 5h3"/></svg>Agenda</span>
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a5 5 0 0 1 10 0v3m3-17a3 3 0 0 1 0 6m1 4a5 5 0 0 1 4 5v2"/></svg>Clienti</span>
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5m-18 5 9 5 9-5"/></svg>Percorsi</span>
+                </div>
+                <p>Ogni seduta, al posto giusto.</p>
+            </div>
+        </section>
+
+        <section class="login-panel" aria-labelledby="loginTitle">
+            <div class="login-form-content">
+                <span class="login-access-label"><span aria-hidden="true"></span>AREA RISERVATA</span>
+                <h2 id="loginTitle">Bentornato.</h2>
+                <p class="login-intro">La tua giornata di lavoro inizia da qui.<br>Accedi al gestionale del tuo studio.</p>
+
+                {% if error %}
+                <div id="loginError" class="login-error" role="alert" tabindex="-1">
+                    <strong>Accesso non riuscito</strong>
+                    <span>{{ error }}. Controlla email e password e riprova.</span>
+                </div>
+                {% endif %}
+
+                <form class="login-form" method="POST" action="{{ url_for('login') }}">
+                    <div class="login-field">
+                        <label for="loginEmail">Indirizzo email</label>
+                        <input id="loginEmail" type="email" name="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="La tua email" required{% if error %} aria-describedby="loginError"{% endif %}>
+                    </div>
+                    <div class="login-field">
+                        <label for="loginPassword">Password</label>
+                        <div class="login-password-field">
+                            <input id="loginPassword" type="password" name="password" autocomplete="current-password" placeholder="La tua password" required{% if error %} aria-describedby="loginError"{% endif %}>
+                            <button id="loginPasswordToggle" class="login-password-toggle" type="button" aria-label="Mostra password" aria-controls="loginPassword" aria-pressed="false" hidden>
+                                <svg class="login-eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="login-eye-slash" d="m3 3 18 18"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <button class="login-submit" type="submit"><span>Accedi al gestionale</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+                </form>
+
+                <p class="login-private"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></svg>Accesso riservato allo studio</p>
+            </div>
+            <p class="login-panel-footer">MASSOTERAPIA &amp; PT <span aria-hidden="true">/</span> GESTIONALE APPUNTAMENTI</p>
+        </section>
+    </main>
+</body>
+</html>

@@ -1223,6 +1223,54 @@ def test_calendar_query_failures_are_not_successful_empty_agendas(authed_client,
     assert "private-provider-detail" not in response.get_data(as_text=True)
 
 
+def test_login_page_is_public_and_preserves_standard_password_manager_fields(unauth_client):
+    response = unauth_client.get('/login')
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert '<html lang="it">' in html
+    assert 'method="POST" action="/login"' in html
+    assert 'name="email" autocomplete="username"' in html
+    assert 'type="password" name="password" autocomplete="current-password"' in html
+    assert 'type="button" aria-label="Mostra password"' in html
+    assert html.count('type="submit"') == 1
+    assert 'id="loginError"' not in html
+    assert 'src="/static/main.js' not in html
+    with unauth_client.session_transaction() as session:
+        assert not session.get('logged_in')
+    for filename in ('login.css', 'login.js'):
+        assert unauth_client.get('/static/' + filename).status_code == 200
+
+
+def test_login_valid_credentials_keep_the_existing_session_and_redirect(unauth_client, monkeypatch):
+    monkeypatch.setattr(app_module, 'ADMIN_EMAIL', 'login-test@example.com')
+    monkeypatch.setattr(app_module, 'ADMIN_PASSWORD', 'example-test-password')
+    response = unauth_client.post('/login', data={'email': 'login-test@example.com', 'password': 'example-test-password'})
+    assert response.status_code == 302
+    assert response.headers['Location'] == '/'
+    with unauth_client.session_transaction() as session:
+        assert session['logged_in'] is True
+
+
+@pytest.mark.parametrize('data', [
+    {'email': 'wrong@example.com', 'password': 'example-test-password'},
+    {'email': 'login-test@example.com', 'password': 'wrong-password'},
+    {},
+])
+def test_login_rejected_credentials_show_accessible_generic_error_without_echoing_password(unauth_client, monkeypatch, data):
+    monkeypatch.setattr(app_module, 'ADMIN_EMAIL', 'login-test@example.com')
+    monkeypatch.setattr(app_module, 'ADMIN_PASSWORD', 'example-test-password')
+    response = unauth_client.post('/login', data=data)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'Credenziali non valide' in html
+    assert 'role="alert"' in html
+    assert 'aria-describedby="loginError"' in html
+    assert 'example-test-password' not in html
+    assert 'wrong-password' not in html
+    with unauth_client.session_transaction() as session:
+        assert not session.get('logged_in')
+
+
 def test_health_endpoint_is_public(unauth_client):
     client = unauth_client
     response = client.get("/health")
