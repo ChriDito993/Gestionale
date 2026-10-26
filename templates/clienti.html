@@ -12,7 +12,7 @@
 <div class="app-container">
 
     <header class="app-header">
-        <div><p class="archive-eyebrow">Anagrafiche</p><h1>Archivio clienti</h1></div>
+        <div><p class="archive-eyebrow">Anagrafiche</p><h1>Archivio clienti</h1><p class="archive-total"><strong>{{ clienti|length }}</strong> {{ 'cliente in archivio' if clienti|length == 1 else 'clienti in archivio' }}</p></div>
         <a href="/" class="btn-primary">Calendario</a>
     </header>
 

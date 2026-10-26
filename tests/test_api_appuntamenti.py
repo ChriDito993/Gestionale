@@ -25,6 +25,7 @@ class FakeQuery:
         self._single = False
         self._limit = None
         self._range = None
+        self._orders = []
 
     def select(self, _columns):
         self.operation = "select"
@@ -64,7 +65,12 @@ class FakeQuery:
         self.filters.append(("gt", column, value))
         return self
 
+    def in_(self, column, values):
+        self.filters.append(("in", column, values))
+        return self
+
     def order(self, _column):
+        self._orders.append(_column)
         return self
 
     def range(self, first, last):
@@ -136,6 +142,10 @@ class FakeQuery:
                     if row_value is None or str(row_value) <= str(value):
                         include = False
                         break
+                elif operator == "in":
+                    if row_value not in value:
+                        include = False
+                        break
             if include:
                 filtered.append(row)
         return filtered
@@ -151,6 +161,8 @@ class FakeQuery:
 
         if self.operation == "select":
             rows = self._filter_rows(list(self.fake_supabase.appuntamenti.values()))
+            for column in reversed(self._orders):
+                rows = sorted(rows, key=lambda row: str(row.get(column) or ""))
             if self._range is not None:
                 rows = rows[self._range[0]:self._range[1] + 1]
             if self._limit is not None:
@@ -1269,6 +1281,114 @@ def test_login_rejected_credentials_show_accessible_generic_error_without_echoin
     assert 'wrong-password' not in html
     with unauth_client.session_transaction() as session:
         assert not session.get('logged_in')
+
+
+@pytest.mark.parametrize('path', ['/api/prossimo_appuntamento', '/api/appuntamenti_oggi'])
+def test_operational_summary_requires_login(unauth_client, path):
+    response = unauth_client.get(path)
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/login')
+
+
+def studio_row(id, start='2026-10-26T11:00:00', end='2026-10-26T12:00:00', state='prenotato', service='Massoterapia'):
+    return {'id': str(id), 'start_datetime': start, 'end_datetime': end, 'stato': state,
+            'servizi': {'nome': service}, 'appuntamenti_clienti': []}
+
+
+def test_next_appointment_includes_ongoing_and_check_but_never_busy_cancelled_or_completed(authed_client, monkeypatch):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 26, 10, 30))
+    db.appuntamenti = {
+        '1': studio_row('1', '2026-10-26T09:15:00', '2026-10-26T10:15:00'),
+        '2': studio_row('2', '2026-10-26T10:00:00', '2026-10-26T11:00:00', 'occupato'),
+        '3': studio_row('3', '2026-10-26T10:00:00', '2026-10-26T11:00:00', 'annullato'),
+        '4': studio_row('4', '2026-10-26T10:00:00', '2026-10-26T11:00:00', 'svolto'),
+        '5': studio_row('5', '2026-10-26T10:15:00', '2026-10-26T11:15:00'),
+        '6': studio_row('6', '2026-10-26T11:30:00', '2026-10-26T11:45:00', service='Check'),
+        '7': studio_row('7', '2027-01-01T11:30:00', '2027-01-01T11:45:00', 'confermato'),
+    }
+    response = client.get('/api/prossimo_appuntamento')
+    assert response.status_code == 200
+    assert response.get_json()['appuntamento']['id'] == '5'
+    assert response.headers['Cache-Control'] == 'no-store'
+    assert response.get_json()['ora_studio'] == '2026-10-26T10:30:00'
+    db.appuntamenti['5']['stato'] = 'completato'
+    assert client.get('/api/prossimo_appuntamento').get_json()['appuntamento']['id'] == '6'
+    db.appuntamenti['6']['stato'] = 'annullato'
+    assert client.get('/api/prossimo_appuntamento').get_json()['appuntamento']['id'] == '7'
+    db.appuntamenti['7']['stato'] = 'no_show'
+    assert client.get('/api/prossimo_appuntamento').get_json()['appuntamento'] is None
+
+
+def test_next_couple_appointment_keeps_both_people_and_session_without_private_tracking(authed_client, monkeypatch):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 26, 10, 30))
+    row = studio_row('1')
+    row.update({'numero_seduta': 3, 'pacchetti_cliente': {'sedute_totali': 10},
+                'email_conferme': {'101': {'fingerprint': 'private-fingerprint'}},
+                'appuntamenti_clienti': [
+                    {'cliente_id': '101', 'clienti': {'nome': 'Mario', 'cognome': 'Rossi'}},
+                    {'cliente_id': '202', 'clienti': {'nome': 'Anna', 'cognome': 'Bianchi'}}]})
+    db.appuntamenti['1'] = row
+    response = client.get('/api/prossimo_appuntamento')
+    props = response.get_json()['appuntamento']['extendedProps']
+    assert props['clienti'] == 'Mario Rossi + Anna Bianchi'
+    assert props['clienti_ids'] == ['101', '202']
+    assert props['numero_seduta'] == 3 and props['sedute_totali'] == 10
+    assert 'private-fingerprint' not in response.get_data(as_text=True)
+
+
+def test_daily_total_excludes_check_busy_cancelled_and_counts_a_couple_only_once(authed_client, monkeypatch):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 26, 0, 10))
+    db.appuntamenti = {str(i): studio_row(i, service=service, state=state) for i, (service, state) in enumerate([
+        ('Massoterapia', 'prenotato'), ('Ginnastica di coppia', 'prenotato'), ('Check', 'prenotato'),
+        ('  cHeCk  ', 'confermato'), ('Massoterapia', 'occupato'), ('Massoterapia', 'annullato'),
+        ('Massoterapia', 'svolto'), ('Massoterapia', 'no_show')])}
+    db.appuntamenti['yesterday'] = studio_row('yesterday', '2026-10-25T23:00:00')
+    db.appuntamenti['tomorrow'] = studio_row('tomorrow', '2026-10-27T00:00:00')
+    data = client.get('/api/appuntamenti_oggi').get_json()
+    assert data == {'totale': 4, 'data': '2026-10-26'}
+
+
+def test_daily_total_does_not_stop_at_supabase_page_limit(authed_client, monkeypatch):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 26, 10, 30))
+    db.appuntamenti = {str(i): studio_row(i) for i in range(1001)}
+    assert client.get('/api/appuntamenti_oggi').get_json()['totale'] == 1001
+
+
+def test_studio_clock_explicitly_uses_rome_instead_of_render_host_timezone(monkeypatch):
+    class StudioClock:
+        @staticmethod
+        def now(tz):
+            assert tz.key == 'Europe/Rome'
+            return datetime(2026, 10, 27, 0, 10, tzinfo=tz)
+    monkeypatch.setattr(app_module, 'datetime', StudioClock)
+    assert app_module.studio_now() == datetime(2026, 10, 27, 0, 10)
+
+
+@pytest.mark.parametrize('path', ['/api/prossimo_appuntamento', '/api/appuntamenti_oggi'])
+def test_operational_read_failures_never_report_an_empty_success(authed_client, monkeypatch, path):
+    client, _db = authed_client
+    def fail(_query):
+        raise RuntimeError('private-provider-details')
+    monkeypatch.setattr(FakeQuery, 'execute', fail)
+    response = client.get(path)
+    assert response.status_code == 503
+    assert 'error' in response.get_json()
+    assert 'private-provider-details' not in response.get_data(as_text=True)
+
+
+def test_client_total_is_in_archive_not_operational_dashboard():
+    from flask import render_template
+    with app_module.app.test_request_context('/'):
+        dashboard = render_template('index.html', dashboard_pacchetti=0)
+        archive = render_template('clienti.html', clienti=[{'id': '101', 'nome': 'Mario', 'cognome': 'Rossi'}])
+    assert 'Clienti totali' not in dashboard
+    assert 'nextAppointmentOpen' in dashboard
+    assert '1</strong> cliente in archivio' in archive
+    assert '09:15–13:30' in dashboard and '15:00–20:00' in dashboard
 
 
 def test_health_endpoint_is_public(unauth_client):

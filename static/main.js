@@ -33,12 +33,99 @@ let calendarPreviewTimer;
 let calendarPreviewAnchor;
 let calendarReturnFocus;
 let calendarWeekSequence = 0;
+let nextAppointmentSequence = 0;
+let nextAppointmentEvent = null;
+let dailySummarySequence = 0;
+
+function countedStudioAppointment(event) {
+    const props = event.extendedProps || {};
+    const service = String(props.servizio || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    return !String(event.display || '').includes('background') && !props.occupato
+        && !['occupato', 'annullato'].includes(props.stato) && !['check', 'occupato'].includes(service);
+}
+
+async function updateNextAppointment() {
+    const button = document.getElementById('nextAppointmentOpen');
+    if (!button) return;
+    const sequence = ++nextAppointmentSequence;
+    const status = document.getElementById('nextAppointmentStatus');
+    const retry = document.getElementById('nextAppointmentRetry');
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    if (status) status.textContent = 'Aggiornamento in corso';
+    if (retry) retry.hidden = true;
+    const put = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = value; };
+    try {
+        const data = await fetchJsonOrThrow('/api/prossimo_appuntamento', { cache: 'no-store' });
+        if (sequence !== nextAppointmentSequence) return;
+        if (!data || !Object.prototype.hasOwnProperty.call(data, 'appuntamento')) throw new Error('Invalid next appointment response');
+        const raw = data.appuntamento;
+        if (!raw) {
+            nextAppointmentEvent = null;
+            put('nextAppointmentTime', '—'); put('nextAppointmentDate', ''); put('nextAppointmentTiming', '');
+            put('nextAppointmentClient', 'Nessun prossimo appuntamento'); put('nextAppointmentService', 'La tua agenda non contiene altri appuntamenti in programma.');
+            put('nextAppointmentSession', '');
+            button.removeAttribute('aria-label');
+            if (status) status.textContent = 'Agenda aggiornata';
+            return;
+        }
+        if (!raw.id || !raw.start || !raw.end) throw new Error('Incomplete next appointment');
+        const event = { ...raw, start: new Date(raw.start), end: new Date(raw.end) };
+        const now = new Date(data.ora_studio);
+        if (Number.isNaN(event.start.getTime()) || Number.isNaN(event.end.getTime()) || Number.isNaN(now.getTime())) throw new Error('Invalid next appointment');
+        nextAppointmentEvent = event;
+        const props = event.extendedProps || {};
+        const minutes = Math.max(1, Math.ceil((event.start - now) / 60000));
+        const today = event.start.toDateString() === now.toDateString();
+        put('nextAppointmentTime', formatTimeHm(event.start));
+        put('nextAppointmentDate', `${today ? 'Oggi' : formatDateLabel(event.start)} · fino alle ${formatTimeHm(event.end)}`);
+        put('nextAppointmentClient', props.clienti || 'Appuntamento');
+        put('nextAppointmentService', props.servizio || '');
+        put('nextAppointmentSession', calendarSessionLabel(props));
+        put('nextAppointmentTiming', event.start <= now ? 'In corso' : today && minutes < 60 ? `Tra ${minutes} min` : 'In programma');
+        button.setAttribute('aria-label', `Apri appuntamento: ${props.clienti || ''}, ${formatDateLabel(event.start)}, ${calendarTimeLabel(event)}`);
+        button.disabled = false;
+        if (status) status.textContent = 'Tocca per vedere i dettagli o modificare';
+    } catch (_) {
+        if (sequence !== nextAppointmentSequence) return;
+        nextAppointmentEvent = null;
+        put('nextAppointmentTime', '—'); put('nextAppointmentDate', ''); put('nextAppointmentTiming', '');
+        put('nextAppointmentClient', 'Agenda non aggiornata'); put('nextAppointmentService', ''); put('nextAppointmentSession', '');
+        button.removeAttribute('aria-label');
+        if (status) status.textContent = 'Impossibile leggere il prossimo appuntamento.';
+        if (retry) retry.hidden = false;
+    } finally {
+        if (sequence === nextAppointmentSequence) button.setAttribute('aria-busy', 'false');
+    }
+}
+
+function openNextAppointment() {
+    const button = document.getElementById('nextAppointmentOpen');
+    if (button?.disabled || !nextAppointmentEvent) return;
+    openCalendarAppointment({ event: nextAppointmentEvent, el: button });
+}
+
+async function updateDailySummary() {
+    const counter = document.getElementById('dayCount');
+    if (!counter) return;
+    const sequence = ++dailySummarySequence;
+    try {
+        const data = await fetchJsonOrThrow('/api/appuntamenti_oggi', { cache: 'no-store' });
+        if (sequence !== dailySummarySequence) return;
+        if (!data || !Number.isInteger(data.totale) || data.totale < 0 || !/^\d{4}-\d{2}-\d{2}$/.test(data.data || '')) throw new Error('Invalid daily total');
+        counter.textContent = String(data.totale);
+        const label = document.getElementById('dayLabel');
+        if (label) label.textContent = new Date(`${data.data}T12:00:00`).toLocaleDateString('it-IT', { day: '2-digit', month: 'long' });
+    } catch (_) {
+        if (sequence === dailySummarySequence) counter.textContent = '—';
+    }
+}
 
 async function fetchCalendarWeekEvents(baseDate) {
     const { monday, sundayExclusive } = getSettimanaRange(baseDate);
     const events = await fetchJsonOrThrow(buildAppuntamentiUrl({
         startStr: formatDateTimeForApi(monday), endStr: formatDateTimeForApi(sundayExclusive)
-    }), { cache: 'no-store' });
+    }, { includeFilters: false }), { cache: 'no-store' });
     if (!Array.isArray(events)) throw new Error('Elenco settimanale non disponibile');
     return events;
 }
@@ -54,7 +141,7 @@ async function updateCalendarWeekSummary() {
     if (counter) counter.textContent = '…';
     try {
         const events = await fetchCalendarWeekEvents(calendar.getDate());
-        if (sequence === calendarWeekSequence && counter) counter.textContent = String(events.length);
+        if (sequence === calendarWeekSequence && counter) counter.textContent = String(events.filter(countedStudioAppointment).length);
     } catch (_) {
         if (sequence === calendarWeekSequence && counter) counter.textContent = '—';
     }
@@ -82,7 +169,7 @@ function calendarTextElement(tag, className, text) {
 }
 
 function renderCalendarEvent(arg) {
-    if (arg.event.display === 'background') return;
+    if (String(arg.event.display || '').includes('background')) return;
     const props = arg.event.extendedProps || {};
     const wrapper = calendarTextElement('div', 'calendar-event-content', '');
     wrapper.appendChild(calendarTextElement('div', 'calendar-event-time', calendarTimeLabel(arg.event)));
@@ -124,7 +211,7 @@ function positionCalendarPreview(preview, anchor) {
 }
 
 async function showCalendarPreview(info) {
-    if (isMobileViewport() || info.isMirror || info.event.display === 'background') return;
+    if (isMobileViewport() || info.isMirror || String(info.event.display || '').includes('background')) return;
     hideCalendarPreview();
     const token = calendarPreviewToken;
     let preview = document.getElementById('calendarPreview');
@@ -167,7 +254,7 @@ async function showCalendarPreview(info) {
 }
 
 function mountCalendarEvent(info) {
-    if (info.event.display === 'background') return;
+    if (String(info.event.display || '').includes('background')) return;
     const props = info.event.extendedProps || {};
     const color = props.occupato ? '#b91c1c' : /^#[\da-f]{6}$/i.test(info.event.backgroundColor || '')
         ? info.event.backgroundColor : getColoreServizio(props.servizio || '');
@@ -204,7 +291,7 @@ function mountCalendarEvent(info) {
 }
 
 function openCalendarAppointment(info) {
-    if (!info.event || info.event.display === 'background') return;
+    if (!info.event || String(info.event.display || '').includes('background')) return;
     info.jsEvent?.preventDefault?.();
     hideCalendarPreview();
     calendarReturnFocus = info.el || null;
@@ -912,6 +999,10 @@ buttonText: {
         slotLabelInterval: "01:00:00", // mostra solo ore piene nella colonna
         slotMinTime: "08:00:00",
         slotMaxTime: "21:00:00",
+        businessHours: [
+            { daysOfWeek: [0,1,2,3,4,5,6], startTime: '09:15', endTime: '13:30' },
+            { daysOfWeek: [0,1,2,3,4,5,6], startTime: '15:00', endTime: '20:00' }
+        ],
 
         // 🍝 Evidenzia fascia pranzo
         eventSources: [
@@ -977,33 +1068,10 @@ buttonText: {
     initializeCalendarControls();
     inizializzaFiltriCalendario();
 
-    function aggiornaDashboardOggi() {
-        fetch('/api/appuntamenti_oggi')
-            .then(res => res.json())
-            .then(data => {
-
-                const dayEl = document.getElementById("dayCount");
-                const labelEl = document.getElementById("dayLabel");
-
-                if (!dayEl || !labelEl) return;
-
-                dayEl.textContent = data.totale;
-
-                const oggi = new Date();
-                const options = { day: '2-digit', month: 'long', year: 'numeric' };
-                labelEl.textContent = oggi.toLocaleDateString('it-IT', options);
-
-                dayEl.style.transform = "scale(1.1)";
-                dayEl.style.transition = "transform 0.2s ease";
-
-                setTimeout(() => {
-                    dayEl.style.transform = "scale(1)";
-                }, 200);
-            });
-    }
-
     calendar.on('eventsSet', updateCalendarWeekSummary);
     calendar.on('eventsSet', aggiornaContatorePacchetti);
+    calendar.on('eventsSet', updateNextAppointment);
+    calendar.on('eventsSet', updateDailySummary);
     calendar.on('datesSet', updateCalendarWeekSummary);
     updateCalendarWeekSummary();
 
@@ -1043,7 +1111,21 @@ buttonText: {
     inizializzaRicorrenzaEvento();
     inizializzaSlotPersonalizzati();
     inizializzaStatoOccupato();
-    aggiornaDashboardOggi();
+    updateDailySummary();
+    updateNextAppointment();
+    document.getElementById('nextAppointmentOpen')?.addEventListener('click', openNextAppointment);
+    document.getElementById('nextAppointmentRetry')?.addEventListener('click', updateNextAppointment);
+    // Refresh as time advances and on returning to the app, independent of calendar filters.
+    const refreshOperationalSummary = () => {
+        if (document.hidden) return;
+        updateNextAppointment();
+        updateDailySummary();
+        updateCalendarWeekSummary();
+    };
+    const summaryTimer = setInterval(refreshOperationalSummary, 60000);
+    document.addEventListener('visibilitychange', refreshOperationalSummary);
+    window.addEventListener('pagehide', () => clearInterval(summaryTimer), { once: true });
+    window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });
 
     // ===============================
     // MODAL PACCHETTI ATTIVI
@@ -1247,6 +1329,7 @@ buttonText: {
             if (sequence !== dashboardListSequence) return;
 
             const appuntamenti = (Array.isArray(data) ? data : [])
+                .filter(countedStudioAppointment)
                 .map(normalizzaEventoDashboard)
                 .filter(Boolean)
                 .sort((a, b) => a.start - b.start);
@@ -1277,7 +1360,7 @@ buttonText: {
         try {
             const events = await fetchCalendarWeekEvents(riferimento);
             if (sequence !== dashboardListSequence) return;
-            const appuntamenti = events.map(normalizzaEventoDashboard).filter(Boolean).sort((a, b) => a.start - b.start);
+            const appuntamenti = events.filter(countedStudioAppointment).map(normalizzaEventoDashboard).filter(Boolean).sort((a, b) => a.start - b.start);
             renderDashboardListaAppuntamenti(appuntamenti, 'Nessun appuntamento nella settimana corrente.');
         } catch (_) {
             if (sequence !== dashboardListSequence) return;

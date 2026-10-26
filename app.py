@@ -741,24 +741,16 @@ def index():
 
     totale_pacchetti_attivi = pacchetti_attivi.count if pacchetti_attivi.count else 0
 
-    # Conteggio clienti totali
-    clienti_totali = supabase.table("clienti") \
-        .select("id", count="exact") \
-        .execute()
-
-    totale_clienti = clienti_totali.count if clienti_totali.count else 0
-
     # Salva in cache
     _dashboard_cache = {
         "timestamp": now,
         "pacchetti": totale_pacchetti_attivi,
-        "clienti": totale_clienti
+        "clienti": 0  # The client total now belongs to the archive, not the dashboard.
     }
 
     return render_template(
         "index.html",
-        dashboard_pacchetti=totale_pacchetti_attivi,
-        dashboard_clienti=totale_clienti
+        dashboard_pacchetti=totale_pacchetti_attivi
     )
 
 # ===============================
@@ -908,6 +900,65 @@ def get_cliente_singolo(cliente_id):
 # API APPUNTAMENTI
 # ===============================
 
+CALENDAR_EVENT_SELECT = """
+    *, servizi(nome,colore_calendario), pacchetti_cliente(sedute_totali),
+    appuntamenti_clienti(cliente_id,clienti(nome,cognome))
+"""
+
+
+def calendar_event(appo):
+    """Shared, credential-free calendar representation for agenda and next appointment."""
+    links = appo.get("appuntamenti_clienti") or []
+    names = [f"{link['clienti']['nome']} {link['clienti']['cognome']}" for link in links if link.get("clienti")]
+    busy = appo.get("stato") == "occupato"
+    service = appo.get("servizi") or {}
+    title = "Occupato" if busy else service.get("nome") or ""
+    if not busy and appo.get("numero_seduta"):
+        title += f" (S{appo['numero_seduta']})"
+    return {
+        "id": appo["id"], "title": title,
+        "start": appo["start_datetime"], "end": appo["end_datetime"],
+        "backgroundColor": "#dc2626" if busy else service.get("colore_calendario"),
+        "extendedProps": {
+            "clienti": " + ".join(names),
+            "clienti_ids": [link["cliente_id"] for link in links if link.get("cliente_id")],
+            "servizio": service.get("nome") or "", "stato": appo.get("stato"), "occupato": busy,
+            "numero_seduta": appo.get("numero_seduta"),
+            "sedute_totali": (appo.get("pacchetti_cliente") or {}).get("sedute_totali"),
+            "note": appo.get("note") or "", "reminder_whatsapp": appo.get("reminder_whatsapp", False)
+        }
+    }
+
+
+def studio_now():
+    """Appointment timestamps are stored as Rome wall-clock times, including on Render."""
+    return datetime.now(ZoneInfo("Europe/Rome")).replace(tzinfo=None)
+
+
+def counted_studio_appointment(row):
+    service = " ".join(str((row.get("servizi") or {}).get("nome") or "").split()).casefold()
+    return row.get("stato") not in {"occupato", "annullato"} and service not in {"check", "occupato"}
+
+
+@app.route("/api/prossimo_appuntamento", methods=["GET"])
+@login_required
+def prossimo_appuntamento():
+    now = studio_now()
+    try:
+        response = supabase.table("appuntamenti").select(CALENDAR_EVENT_SELECT) \
+            .gt("end_datetime", now.isoformat()).in_("stato", ["prenotato", "confermato"]) \
+            .order("start_datetime").order("id").limit(1).execute()
+        if response.data is None:
+            raise ValueError("Missing appointment response")
+        event = calendar_event(response.data[0]) if response.data else None
+    except Exception:
+        app.logger.exception("Errore lettura prossimo appuntamento")
+        return jsonify({"error": "Impossibile aggiornare il prossimo appuntamento. Riprova."}), 503
+    result = jsonify({"appuntamento": event, "ora_studio": now.isoformat()})
+    result.headers["Cache-Control"] = "no-store"
+    return result
+
+
 @app.route("/api/appuntamenti", methods=["GET"])
 @login_required
 def get_appuntamenti():
@@ -962,15 +1013,7 @@ def get_appuntamenti():
         return jsonify([])
 
     query = supabase.table("appuntamenti") \
-        .select("""
-            *,
-            servizi(nome,colore_calendario),
-            pacchetti_cliente(sedute_totali),
-            appuntamenti_clienti(
-                cliente_id,
-                clienti(nome,cognome)
-            )
-        """)
+        .select(CALENDAR_EVENT_SELECT)
 
     if stato:
         query = query.eq("stato", stato)
@@ -999,55 +1042,10 @@ def get_appuntamenti():
     eventi = []
 
     for appo in response.data:
-
-        clienti_nomi = []
-        clienti_ids = []
-
-        for relazione in appo.get("appuntamenti_clienti", []):
-            cliente = relazione.get("clienti")
-            cliente_id = relazione.get("cliente_id")
-
-            if cliente:
-                clienti_nomi.append(f"{cliente['nome']} {cliente['cognome']}")
-
-            if cliente_id:
-                clienti_ids.append(cliente_id)
-
-        nomi_clienti = " + ".join(clienti_nomi)
-
-        if cliente_query and cliente_query not in nomi_clienti.lower():
+        evento = calendar_event(appo)
+        if cliente_query and cliente_query not in evento["extendedProps"]["clienti"].lower():
             continue
-
-        is_occupato = appo.get("stato") == "occupato"
-        servizio = appo.get("servizi") or {}
-        nome_servizio = servizio.get("nome") or ""
-        colore = "#dc2626" if is_occupato else servizio.get("colore_calendario")
-
-        # Il titolo deve contenere solo il servizio (i clienti vengono mostrati nel popup).
-        titolo = "Occupato" if is_occupato else nome_servizio
-
-        # 🔹 Aggiungi numero seduta se presente
-        if not is_occupato and appo.get("numero_seduta"):
-            titolo += f" (S{appo['numero_seduta']})"
-
-        eventi.append({
-            "id": appo["id"],
-            "title": titolo,
-            "start": appo["start_datetime"],
-            "end": appo["end_datetime"],
-            "backgroundColor": colore,
-            "extendedProps": {
-                "clienti": nomi_clienti,
-                "clienti_ids": clienti_ids,
-                "servizio": nome_servizio,
-                "stato": appo.get("stato"),
-                "occupato": is_occupato,
-                "numero_seduta": appo.get("numero_seduta"),
-                "sedute_totali": (appo.get("pacchetti_cliente") or {}).get("sedute_totali"),
-                "note": appo.get("note") or "",
-                "reminder_whatsapp": appo.get("reminder_whatsapp", False)
-            }
-        })
+        eventi.append(evento)
 
     _calendar_cache = {
         "key": cache_key,
@@ -1478,25 +1476,28 @@ def pacchetti_dashboard():
 @app.route("/api/appuntamenti_oggi", methods=["GET"])
 @login_required
 def appuntamenti_oggi():
-
-    from datetime import time
-
-    now_dt = datetime.now()
-    start_day = datetime.combine(now_dt.date(), time.min).isoformat()
-    end_day = datetime.combine(now_dt.date(), time.max).isoformat()
-
-    response = supabase.table("appuntamenti") \
-        .select("id", count="exact") \
-        .gte("start_datetime", start_day) \
-        .lte("start_datetime", end_day) \
-        .execute()
-
-    totale = response.count if response.count else 0
-
-    return jsonify({
-        "totale": totale,
-        "data": now_dt.date().isoformat()
-    })
+    from datetime import timedelta
+    now_dt = studio_now()
+    start = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    total, offset = 0, 0
+    try:
+        while True:
+            rows = supabase.table("appuntamenti").select("id,stato,servizi(nome)") \
+                .gte("start_datetime", start.isoformat()).lt("start_datetime", end.isoformat()) \
+                .order("id").range(offset, offset + 999).execute().data
+            if rows is None:
+                raise ValueError("Missing daily response")
+            total += sum(counted_studio_appointment(row) for row in rows)
+            if len(rows) < 1000:
+                break
+            offset += 1000
+    except Exception:
+        app.logger.exception("Errore conteggio appuntamenti di oggi")
+        return jsonify({"error": "Impossibile aggiornare il totale di oggi."}), 503
+    result = jsonify({"totale": total, "data": now_dt.date().isoformat()})
+    result.headers["Cache-Control"] = "no-store"
+    return result
 
 
 # ===============================

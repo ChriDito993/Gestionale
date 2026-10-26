@@ -1,3 +1,65 @@
+/* Operational overview: the next person comes before statistical counters. */
+.studio-overview { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(250px, 1fr); gap: 16px; margin-bottom: 10px; }
+.next-appointment { min-width: 0; padding: 20px 22px 14px; border: 1px solid rgba(33,133,121,.3); border-radius: 16px; background: rgba(33,133,121,.16); }
+.next-appointment-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.next-eyebrow { color: #336a5f; font-size: 11px; font-weight: 650; letter-spacing: .6px; }
+.next-timing { color: #256354; background: #d2e8dc; font-size: 10px; font-weight: 650; border-radius: 6px; padding: 4px 7px; white-space: nowrap; }
+.next-timing:empty { display: none; }
+.next-appointment-open { width: 100%; border: 0; padding: 18px 0 14px; display: grid; grid-template-columns: auto minmax(0, 1fr) 22px; align-items: center; gap: 22px; text-align: left; background: transparent; color: #19382f; font: inherit; cursor: pointer; border-radius: 8px; }
+.next-appointment-open:disabled { opacity: 1; cursor: default; }
+.next-appointment-open:not(:disabled):hover .next-open-icon { transform: translateX(3px); }
+.next-time-column, .next-person-column { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.next-time-column { padding-right: 22px; border-right: 1px solid #c3dace; }
+.next-time { font-size: clamp(26px, 3vw, 38px); line-height: 1.15; font-weight: 600; letter-spacing: -1.3px; font-variant-numeric: tabular-nums; }
+.next-date { font-size: 10px; color: #526f64; line-height: 1.5; max-width: 140px; }
+.next-client { font-size: 20px; font-weight: 650; line-height: 1.25; letter-spacing: -.4px; overflow-wrap: anywhere; }
+.next-service { color: #506b61; font-size: 12px; line-height: 1.4; }
+.next-session { color: #2b6757; font-size: 11px; font-weight: 600; }
+.next-session:empty { display: none; }
+.next-open-icon { color: #4c7d6c; transition: transform .18s; }
+.next-appointment-open:disabled .next-open-icon { visibility: hidden; }
+.next-appointment-footer { display: flex; align-items: center; gap: 12px; border-top: 1px solid #cfe1d7; padding-top: 10px; font-size: 10px; color: #567268; min-height: 28px; }
+#nextAppointmentRetry { border: 1px solid #a6c6b8; border-radius: 6px; background: #fff; padding: 5px 8px; font: inherit; color: #225f4e; cursor: pointer; }
+#nextAppointmentRetry[hidden] { display: none; }
+.studio-summary { display: grid; align-content: start; padding: 16px 18px 12px; border: 1px solid #dfe6e6; border-radius: 16px; background: #ffffffbc; }
+.studio-summary-label { color: #73817e; font-size: 10px; margin-bottom: 7px; }
+.studio-summary-row { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 7px 0; border: 0; background: transparent; font: inherit; font-size: 12px; color: #445650; text-align: left; cursor: pointer; }
+.studio-summary-row:hover, .studio-summary-packages:hover { color: #157466; }
+.studio-summary-meta { display: block; color: #75827d; font-size: 10px; margin-top: 2px; }
+.studio-summary-value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.studio-count-help { margin: 6px 0 10px; font-size: 9px; line-height: 1.5; color: #65776e; }
+.studio-summary-packages { display: flex; align-items: center; gap: 8px; padding: 9px 0 0; border: 0; border-top: 1px solid #e4eae7; background: transparent; font: inherit; font-size: 11px; color: #50635a; text-align: left; cursor: pointer; }
+.studio-summary-packages > span:nth-child(2) { margin-left: auto; font-weight: 650; }
+.studio-hours { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; padding-left: 2px; font-size: 10px; color: #75817e; }
+.studio-hours > span:not([aria-hidden]) { font-variant-numeric: tabular-nums; color: #52695e; }
+.archive-total { margin: 8px 0 0; color: #bfced4; font-size: 12px; }
+.archive-total strong { color: #fff; font-weight: 650; }
+@media (max-width: 900px) {
+    .studio-overview { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .next-appointment { padding: 16px 16px 12px; }
+    .next-appointment-open { gap: 14px; padding: 16px 0; }
+    .next-time-column { padding-right: 14px; }
+    .next-time { font-size: 30px; }
+    .next-client { font-size: 18px; }
+    .studio-summary { grid-template-columns: 1fr 1fr; gap: 0 14px; padding: 10px 14px; }
+    .studio-summary-label { display: none; }
+    .studio-summary-row { min-height: 44px; font-size: 11px; gap: 6px; }
+    .studio-summary-value { font-size: 18px; }
+    .studio-summary-meta { font-size: 9px; }
+    .studio-count-help, .studio-summary-packages { grid-column: 1 / -1; }
+    .studio-summary-packages { min-height: 36px; }
+    .studio-hours { font-size: 9px; }
+    .next-appointment-footer { font-size: 10px; }
+}
+@media (max-width: 400px) {
+    .next-appointment-open { grid-template-columns: auto minmax(0, 1fr); gap: 12px; }
+    .next-open-icon { display: none; }
+    .next-time { font-size: 27px; }
+    .next-client { font-size: 16px; }
+    .next-date { max-width: 90px; }
+}
+@media (prefers-reduced-motion: reduce) { .next-open-icon { transition: none; } }
+
 /* Inline client emails in appointment creation. */
 #eventoModal .event-missing-emails[hidden] { display: none !important; }
 #eventoModal .event-missing-emails { margin-top: 14px; padding-top: 12px; border-top: 1px solid #dfe7e5; }

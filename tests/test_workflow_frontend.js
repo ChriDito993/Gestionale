@@ -629,3 +629,88 @@ test('Login password visibility is optional, accessible and never changes or sub
     assert.equal(password.value, 'a local test value');
     vm.runInContext(script, vm.createContext({ document: { getElementById: () => null } }));
 });
+
+test('Operational totals exclude Check, occupied and cancelled while retaining ordinary couple sessions', async () => {
+    const { context, nodes } = mainContext();
+    nodes.weekCount = new Element(); nodes.weekRangeLabel = new Element();
+    const events = [calendarTestEvent(), calendarTestEvent({ servizio: ' Check ' }), calendarTestEvent({ servizio: 'cHeCk' }),
+        calendarTestEvent({ stato: 'occupato' }), calendarTestEvent({ stato: 'annullato' }), calendarTestEvent({ stato: 'svolto' })];
+    assert.equal(events.filter(context.countedStudioAppointment).length, 2);
+    assert.equal(context.countedStudioAppointment({ display: 'inverse-background' }), false);
+    context.window.testCalendar = { getDate: () => new Date('2026-10-26T12:00:00') };
+    vm.runInContext('calendar = window.testCalendar; filtriCalendario.cliente = "filtered-out"; filtriCalendario.stato = "occupato";', context);
+    context.fetchJsonOrThrow = async url => {
+        assert.equal(new URL(url, 'http://localhost').searchParams.has('cliente'), false);
+        assert.equal(new URL(url, 'http://localhost').searchParams.has('stato'), false);
+        return events;
+    };
+    await context.updateCalendarWeekSummary();
+    assert.equal(nodes.weekCount.textContent, '2');
+});
+
+function nextAppointmentContext() {
+    const { context, nodes } = mainContext();
+    for (const id of ['nextAppointmentOpen', 'nextAppointmentStatus', 'nextAppointmentRetry', 'nextAppointmentTime',
+        'nextAppointmentDate', 'nextAppointmentTiming', 'nextAppointmentClient', 'nextAppointmentService', 'nextAppointmentSession']) nodes[id] = new Element();
+    return { context, nodes };
+}
+
+test('Next appointment shows both people, time and session and opens details outside the visible calendar', async () => {
+    const { context, nodes } = nextAppointmentContext();
+    const event = calendarTestEvent();
+    context.fetchJsonOrThrow = async url => {
+        assert.equal(url, '/api/prossimo_appuntamento');
+        return { appuntamento: event, ora_studio: '2026-11-11T09:40:00' };
+    };
+    await context.updateNextAppointment();
+    assert.equal(nodes.nextAppointmentClient.textContent, 'Mario Rossi + Anna Bianchi');
+    assert.equal(nodes.nextAppointmentTime.textContent, '10:00');
+    assert.equal(nodes.nextAppointmentTiming.textContent, 'Tra 20 min');
+    assert.equal(nodes.nextAppointmentSession.textContent, 'Seduta 3/10');
+    assert.equal(nodes.nextAppointmentOpen.disabled, false);
+    context.apriModificaModal = () => {};
+    context.openNextAppointment();
+    assert.equal(context.window.eventoSelezionato.id, '42');
+    assert.equal(context.window.eventoSelezionato.start.getHours(), 10);
+});
+
+test('Next appointment handles ongoing, empty, error and out-of-order reads without showing stale data', async () => {
+    const { context, nodes } = nextAppointmentContext();
+    let resolveOld;
+    context.fetchJsonOrThrow = () => new Promise(resolve => { resolveOld = resolve; });
+    const old = context.updateNextAppointment();
+    context.fetchJsonOrThrow = async () => ({ appuntamento: calendarTestEvent(), ora_studio: '2026-11-11T10:20:00' });
+    await context.updateNextAppointment();
+    assert.equal(nodes.nextAppointmentTiming.textContent, 'In corso');
+    resolveOld({ appuntamento: null }); await old;
+    assert.equal(nodes.nextAppointmentOpen.disabled, false);
+    context.fetchJsonOrThrow = async () => ({ appuntamento: null });
+    await context.updateNextAppointment();
+    assert.equal(nodes.nextAppointmentOpen.disabled, true);
+    assert.equal(nodes.nextAppointmentService.textContent.includes('non contiene'), true);
+    context.apriModificaModal = () => assert.fail('No stale event to open');
+    context.openNextAppointment();
+    context.fetchJsonOrThrow = async () => { throw new Error('network'); };
+    await context.updateNextAppointment();
+    assert.equal(nodes.nextAppointmentClient.textContent, 'Agenda non aggiornata');
+    assert.equal(nodes.nextAppointmentRetry.hidden, false);
+    assert.equal(nodes.nextAppointmentTime.textContent, '—');
+    context.fetchJsonOrThrow = async () => ({});
+    await context.updateNextAppointment();
+    assert.equal(nodes.nextAppointmentClient.textContent, 'Agenda non aggiornata');
+});
+
+test('Daily summary uses the studio date and a failed read is not presented as zero appointments', async () => {
+    const { context, nodes } = mainContext();
+    nodes.dayCount = new Element(); nodes.dayLabel = new Element();
+    context.fetchJsonOrThrow = async () => ({ totale: 4, data: '2026-10-26' });
+    await context.updateDailySummary();
+    assert.equal(nodes.dayCount.textContent, '4');
+    assert.match(nodes.dayLabel.textContent, /26/);
+    context.fetchJsonOrThrow = async () => { throw new Error('network'); };
+    await context.updateDailySummary();
+    assert.equal(nodes.dayCount.textContent, '—');
+    context.fetchJsonOrThrow = async () => ({ totale: null });
+    await context.updateDailySummary();
+    assert.equal(nodes.dayCount.textContent, '—');
+});

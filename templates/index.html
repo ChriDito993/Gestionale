@@ -64,53 +64,38 @@
 
     </header>
 
-    <!-- DASHBOARD MINI -->
-    <section class="dashboard-mini" aria-label="Riepilogo attività">
-        <button type="button" class="dashboard-card dashboard-card-interactive" id="openPacchettiAttivi">
-            <span class="dashboard-card-head">
-                <span class="dashboard-label">Pacchetti attivi</span>
-                <svg class="dashboard-open-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M7 17 17 7M7 7h10v10"/>
-                </svg>
-            </span>
-            <span class="dashboard-value" id="dashboardPacchettiCount">{{ dashboard_pacchetti }}</span>
-            <span class="dashboard-meta">Attivi in questo momento</span>
-        </button>
-
-        <div class="dashboard-card">
-            <div class="dashboard-card-head">
-                <span class="dashboard-label">Clienti totali</span>
+    <!-- RIEPILOGO OPERATIVO -->
+    <section class="studio-overview" aria-label="Organizzazione dello studio">
+        <div class="next-appointment">
+            <div class="next-appointment-heading">
+                <span class="next-eyebrow">Il prossimo appuntamento</span>
+                <span id="nextAppointmentTiming" class="next-timing"></span>
             </div>
-            <span class="dashboard-value">{{ dashboard_clienti }}</span>
-            <span class="dashboard-meta">Archivio anagrafico</span>
+            <button type="button" id="nextAppointmentOpen" class="next-appointment-open" disabled>
+                <span class="next-time-column"><span id="nextAppointmentTime" class="next-time">—</span><span id="nextAppointmentDate" class="next-date"></span></span>
+                <span class="next-person-column"><span id="nextAppointmentClient" class="next-client">Caricamento agenda…</span><span id="nextAppointmentService" class="next-service"></span><span id="nextAppointmentSession" class="next-session"></span></span>
+                <svg class="next-open-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+            </button>
+            <div class="next-appointment-footer">
+                <span id="nextAppointmentStatus" role="status" aria-live="polite">Aggiornamento in corso</span>
+                <button type="button" id="nextAppointmentRetry" hidden>Riprova</button>
+            </div>
         </div>
-
-        <button type="button" class="dashboard-card dashboard-card-interactive" id="openAppuntamentiOggi">
-            <span class="dashboard-card-head">
-                <span class="dashboard-label">Appuntamenti oggi</span>
-                <svg class="dashboard-open-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M7 17 17 7M7 7h10v10"/>
-                </svg>
-            </span>
-            <span class="dashboard-value" id="dayCount">0</span>
-            <span id="dayLabel" class="dashboard-meta dashboard-meta-uppercase">
-                Oggi
-            </span>
-        </button>
-
-        <button type="button" class="dashboard-card dashboard-card-interactive" id="openAppuntamentiSettimana">
-            <span class="dashboard-card-head">
-                <span class="dashboard-label">Appuntamenti settimana</span>
-                <svg class="dashboard-open-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M7 17 17 7M7 7h10v10"/>
-                </svg>
-            </span>
-            <span class="dashboard-value" id="weekCount">0</span>
-            <span id="weekRangeLabel" class="dashboard-meta dashboard-meta-uppercase">
-                Settimana corrente
-            </span>
-        </button>
+        <div class="studio-summary">
+            <span class="studio-summary-label">Il tuo riepilogo</span>
+            <button type="button" class="studio-summary-row" id="openAppuntamentiOggi">
+                <span>Oggi<span id="dayLabel" class="studio-summary-meta">Giornata corrente</span></span>
+                <span class="studio-summary-value" id="dayCount">…</span>
+            </button>
+            <button type="button" class="studio-summary-row" id="openAppuntamentiSettimana">
+                <span>Settimana in agenda<span id="weekRangeLabel" class="studio-summary-meta">Settimana visualizzata</span></span>
+                <span class="studio-summary-value" id="weekCount">…</span>
+            </button>
+            <p class="studio-count-help">Totali senza Check, Occupato e annullati. Indipendenti dai filtri.</p>
+            <button type="button" class="studio-summary-packages" id="openPacchettiAttivi"><span>Pacchetti attivi</span><span id="dashboardPacchettiCount">{{ dashboard_pacchetti }}</span><span aria-hidden="true">↗</span></button>
+        </div>
     </section>
+    <p class="studio-hours">Orari studio <span>09:15–13:30</span><span aria-hidden="true">·</span><span>15:00–20:00</span></p>
 
     <!-- FILTRI RAPIDI CALENDARIO -->
     <div class="calendar-filters-card">
