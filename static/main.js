@@ -37,6 +37,9 @@ let calendarWeekSequence = 0;
 let nextAppointmentSequence = 0;
 let nextAppointmentEvent = null;
 let dailySummarySequence = 0;
+let confermaPopupAttiva = false;
+let eliminazioneEventoInCorso = false;
+const chiusureToast = new WeakMap();
 
 function countedStudioAppointment(event) {
     const props = event.extendedProps || {};
@@ -1833,7 +1836,7 @@ function mostraEsitoEmailConferma(esito) {
     if (inviate > 0 && fallite === 0 && senzaEmail === 0 && !messaggiErrore.length) {
         mostraToast(
             inviate === 1 ? "Email di conferma inviata." : `Inviate ${inviate} email di conferma.`,
-            "success"
+            "success", { titolo: "Conferma inviata" }
         );
         return;
     }
@@ -1843,19 +1846,19 @@ function mostraEsitoEmailConferma(esito) {
         if (fallite > 0) dettagli.push(`${fallite} ${fallite === 1 ? "non inviata" : "non inviate"}`);
         if (senzaEmail > 0) dettagli.push(`${senzaEmail} ${senzaEmail === 1 ? "cliente" : "clienti"} senza email`);
         if (motivoErrore) dettagli.push(motivoErrore);
-        mostraToast(`Conferme inviate: ${inviate}. ${dettagli.join(", ")}.`, "warning");
+        mostraToast(`Conferme inviate: ${inviate}. ${dettagli.join(", ")}.`, "warning", { titolo: "Invio parzialmente riuscito" });
         return;
     }
 
     if (fallite > 0) {
-        mostraToast(motivoErrore || "Email di conferma non inviata: controlla la configurazione email.", "warning");
+        mostraToast(motivoErrore || "Email di conferma non inviata: controlla la configurazione email.", "warning", { titolo: "Conferma da verificare" });
         return;
     }
 
     if (senzaEmail > 0) {
-        mostraToast("Email di conferma non inviata: il cliente non ha un indirizzo email.", "info");
+        mostraToast("Email di conferma non inviata: il cliente non ha un indirizzo email.", "info", { titolo: "Indirizzo email mancante" });
     } else if (esito.skipped_already_sent_count > 0) {
-        mostraToast("Conferma già inviata: nessuna email duplicata.", "info");
+        mostraToast("Conferma già inviata: nessuna email duplicata.", "info", { titolo: "Nessun nuovo invio" });
     }
 }
 
@@ -1889,20 +1892,29 @@ async function caricaConfermeEmail(appuntamentoId) {
                 const button = document.createElement("button"); button.type = "button"; button.className = "confirmation-retry";
                 button.textContent = ["failed", "unknown"].includes(persona.status) ? "Riprova" : "Invia conferma";
                 button.addEventListener("click", async () => {
+                    if (button.disabled) return;
+                    button.disabled = true;
                     const warning = persona.status === "unknown" ? "L'email potrebbe essere già partita. Reinviandola potresti duplicarla. Procedere?"
                         : persona.status === "untracked" ? "Per questo appuntamento non esiste uno storico degli invii. Una conferma potrebbe essere già stata inviata. Inviarne una ora?"
                         : `Inviare la conferma a ${persona.nome}?`;
-                    if (!window.confirm(warning)) return;
-                    button.disabled = true;
+                    let invioAvviato = false;
                     try {
+                        const confermato = await mostraConferma({
+                            titolo: persona.status === "unknown" ? "Inviare di nuovo la conferma?" : "Inviare la conferma email?",
+                            messaggio: warning,
+                            conferma: ["failed", "unknown"].includes(persona.status) ? "Reinvia email" : "Invia email"
+                        });
+                        if (!confermato || String(window.eventoSelezionato?.id) !== String(appuntamentoId)) return;
+                        invioAvviato = true;
                         const result = await fetchJsonOrThrow(`/api/appuntamenti/${appuntamentoId}/conferme`, {
                             method: "POST", headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ cliente_id: persona.cliente_id, conferma_esito_incerto: persona.status === "unknown" })
                         }, "Errore nel reinvio della conferma");
                         mostraEsitoEmailConferma(result.email_confirmation);
-                    } catch (error) { mostraToast(error.message, "error"); }
+                    } catch (error) { mostraToast(error.message, "error", { titolo: "Invio non riuscito" }); }
                     finally {
-                        if (String(window.eventoSelezionato?.id) === String(appuntamentoId)) await caricaConfermeEmail(appuntamentoId);
+                        button.disabled = false;
+                        if (invioAvviato && String(window.eventoSelezionato?.id) === String(appuntamentoId)) await caricaConfermeEmail(appuntamentoId);
                     }
                 });
                 row.appendChild(button);
@@ -2173,6 +2185,8 @@ window.addEventListener("click", function(event) {
 window.addEventListener("keydown", function(event) {
 
     if (event.key !== "Escape") return;
+    // The top-layer confirmation owns Escape; keep the appointment underneath open.
+    if (document.getElementById("appConfirmDialog")?.open) return;
 
     const eventoModal = document.getElementById("eventoModal");
     const clienteModal = document.getElementById("clienteModal");
@@ -2254,30 +2268,39 @@ async function salvaModifiche() {
 
 async function eliminaEvento() {
 
-    if (!confirm("Sei sicuro di voler eliminare l'appuntamento?")) return;
-    if (!window.eventoSelezionato) {
+    const evento = window.eventoSelezionato;
+    if (!evento) {
         mostraToast("Nessun appuntamento selezionato", "error");
         return;
     }
 
     const deleteBtn = document.getElementById("btnEliminaEvento");
-    if (deleteBtn?.disabled) return;
-
-    setButtonLoading(deleteBtn, true, { replaceContent: false });
+    if (eliminazioneEventoInCorso || deleteBtn?.disabled) return;
+    eliminazioneEventoInCorso = true;
+    if (deleteBtn) deleteBtn.disabled = true;
 
     try {
-        await fetchJsonOrThrow('/api/appuntamenti/' + window.eventoSelezionato.id, {
+        const dettagli = [evento.extendedProps?.clienti, evento.start ? `${formatDateLabel(evento.start)} alle ${formatTimeHm(evento.start)}` : ""].filter(Boolean).join(" · ");
+        const confermato = await mostraConferma({
+            titolo: evento.extendedProps?.occupato ? "Liberare questo slot?" : "Eliminare l’appuntamento?",
+            messaggio: `${dettagli ? dettagli + "\n\n" : ""}L’appuntamento verrà rimosso dal calendario. Questa operazione non può essere annullata.`,
+            conferma: "Elimina appuntamento", pericolosa: true
+        });
+        if (!confermato || String(window.eventoSelezionato?.id) !== String(evento.id)) return;
+        setButtonLoading(deleteBtn, true, { replaceContent: false });
+        await fetchJsonOrThrow('/api/appuntamenti/' + evento.id, {
             method: 'DELETE'
         }, "Errore durante eliminazione appuntamento");
 
-        chiudiModificaModal();
+        if (String(window.eventoSelezionato?.id) === String(evento.id)) chiudiModificaModal();
         calendar.refetchEvents();
-        mostraToast("Appuntamento eliminato con successo.", "success");
+        mostraToast("Lo slot è di nuovo disponibile nel calendario.", "success", { titolo: "Appuntamento eliminato" });
     } catch (error) {
         console.error("Errore elimina appuntamento:", error);
         mostraToast(error.message || "Errore durante eliminazione", "error");
     } finally {
         setButtonLoading(deleteBtn, false, { replaceContent: false });
+        eliminazioneEventoInCorso = false;
     }
 }
 
@@ -2753,48 +2776,135 @@ function caricaServizi() {
 }
 
 /* ===============================
-   TOAST NOTIFICHE (SaaS Mode)
+   CONFERME E NOTIFICHE
 =================================*/
 
-function mostraToast(messaggio, tipo = "success") {
-    const icone = {
-        success: "✔",
-        error: "✖",
-        warning: "!",
-        info: "i"
+function mostraConferma({ titolo, messaggio, conferma = "Conferma", pericolosa = false }) {
+    if (confermaPopupAttiva) return Promise.resolve(false);
+    const dialog = document.getElementById("appConfirmDialog");
+    // Preserve the safety confirmation in browsers without native dialog support.
+    if (!dialog || typeof dialog.showModal !== "function") return Promise.resolve(window.confirm(messaggio));
+    confermaPopupAttiva = true;
+    const accept = document.getElementById("appConfirmAccept");
+    const cancel = document.getElementById("appConfirmCancel");
+    const trigger = document.activeElement;
+    document.getElementById("appConfirmTitle").textContent = titolo;
+    document.getElementById("appConfirmMessage").textContent = messaggio;
+    accept.textContent = conferma;
+    dialog.classList.toggle("is-danger", pericolosa);
+
+    return new Promise(resolve => {
+        let conclusa = false;
+        const finish = result => {
+            if (conclusa) return;
+            conclusa = true;
+            accept.removeEventListener("click", approve);
+            cancel.removeEventListener("click", dismiss);
+            dialog.removeEventListener("cancel", onCancel);
+            dialog.removeEventListener("close", onClose);
+            dialog.removeEventListener("click", onBackdrop);
+            if (dialog.open) dialog.close();
+            document.body.classList.remove("app-confirm-open");
+            confermaPopupAttiva = false;
+            resolve(result);
+            requestAnimationFrame(() => {
+                if (!confermaPopupAttiva && trigger?.isConnected && !trigger.disabled) trigger.focus({ preventScroll: true });
+            });
+        };
+        const approve = () => finish(true);
+        const dismiss = () => finish(false);
+        const onClose = () => { if (!dialog.open) dismiss(); };
+        const onCancel = event => { event.preventDefault(); dismiss(); };
+        const onBackdrop = event => { if (event.target === dialog) dismiss(); };
+        accept.addEventListener("click", approve);
+        cancel.addEventListener("click", dismiss);
+        dialog.addEventListener("cancel", onCancel);
+        dialog.addEventListener("close", onClose);
+        dialog.addEventListener("click", onBackdrop);
+        try {
+            dialog.showModal();
+            document.body.classList.add("app-confirm-open");
+            cancel.focus({ preventScroll: true });
+        } catch (_) { finish(false); }
+    });
+}
+
+function mostraToast(messaggio, tipo = "success", opzioni = {}) {
+    const tipi = {
+        success: { titolo: "Operazione completata", durata: 5000, icona: '<path d="m5 12 4 4L19 6"/>' },
+        error: { titolo: "Operazione non riuscita", durata: 10000, icona: '<path d="m7 7 10 10M17 7 7 17"/>' },
+        warning: { titolo: "Da controllare", durata: 9000, icona: '<path d="M12 8v5M12 16h.01"/><path d="m10.3 4.8-7.5 13A2 2 0 0 0 4.5 21h15a2 2 0 0 0 1.7-3.2l-7.5-13a2 2 0 0 0-3.4 0Z"/>' },
+        info: { titolo: "Un’informazione per te", durata: 6000, icona: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>' }
     };
-    const icona = icone[tipo] || "•";
+    if (!Object.prototype.hasOwnProperty.call(tipi, tipo)) tipo = "info";
+    const config = tipi[tipo];
 
     let container = document.getElementById("appToastContainer");
     if (!container) {
         container = document.createElement("div");
         container.id = "appToastContainer";
         container.className = "app-toast-container";
+        container.setAttribute("aria-label", "Notifiche del gestionale");
         document.body.appendChild(container);
     }
 
     const toast = document.createElement("div");
     toast.className = `app-toast app-toast-${tipo}`;
-    toast.innerHTML = `
-        <div class="app-toast-content">
-            <span class="app-toast-icon">${icona}</span>
-            <span class="app-toast-message">${messaggio}</span>
-        </div>
-        <div class="app-toast-progress"></div>
-    `;
+    toast.setAttribute("role", tipo === "error" ? "alert" : "status");
+    toast.setAttribute("aria-atomic", "true");
+    toast.style.setProperty("--toast-duration", `${config.durata}ms`);
+    const content = document.createElement("div"); content.className = "app-toast-content";
+    const icon = document.createElement("span"); icon.className = "app-toast-icon"; icon.setAttribute("aria-hidden", "true");
+    // Only these static, application-owned SVG paths are HTML. All message text is literal.
+    icon.innerHTML = `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${config.icona}</svg>`;
+    const copy = document.createElement("div"); copy.className = "app-toast-copy";
+    const title = document.createElement("strong"); title.className = "app-toast-title"; title.textContent = opzioni.titolo || config.titolo;
+    const message = document.createElement("p"); message.className = "app-toast-message"; message.textContent = String(messaggio ?? "");
+    copy.append(title, message);
+    const close = document.createElement("button"); close.type = "button"; close.className = "app-toast-close";
+    close.setAttribute("aria-label", "Chiudi notifica");
+    close.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
+    const progress = document.createElement("div"); progress.className = "app-toast-progress"; progress.setAttribute("aria-hidden", "true");
+    content.append(icon, copy, close); toast.append(content, progress);
 
+    let timer, removalTimer, closing = false;
+    let remaining = config.durata, startedAt = Date.now();
+    const pauses = new Set();
+    const remove = () => {
+        closing = true; clearTimeout(timer); clearTimeout(removalTimer);
+        chiusureToast.delete(toast); toast.remove();
+    };
+    const dismiss = (immediate = false) => {
+        if (immediate) { remove(); return; }
+        if (closing) return;
+        closing = true; clearTimeout(timer);
+        toast.classList.remove("app-toast-show"); toast.classList.add("app-toast-hide");
+        removalTimer = setTimeout(remove, 200);
+    };
+    const pause = source => {
+        if (closing || pauses.has(source)) return;
+        if (!pauses.size) { clearTimeout(timer); remaining = Math.max(0, remaining - (Date.now() - startedAt)); }
+        pauses.add(source); toast.classList.add("is-paused");
+    };
+    const resume = source => {
+        if (!pauses.delete(source) || pauses.size || closing) return;
+        toast.classList.remove("is-paused"); startedAt = Date.now(); timer = setTimeout(dismiss, remaining);
+    };
+    close.addEventListener("click", () => dismiss());
+    toast.addEventListener("pointerenter", event => { if (event.pointerType !== "touch") pause("pointer"); });
+    toast.addEventListener("pointerleave", () => resume("pointer"));
+    toast.addEventListener("focusin", () => pause("focus"));
+    toast.addEventListener("focusout", event => { if (!toast.contains(event.relatedTarget)) resume("focus"); });
+    chiusureToast.set(toast, dismiss);
     container.appendChild(toast);
     while (container.children.length > 3) {
-        container.removeChild(container.firstElementChild);
+        const oldest = container.firstElementChild;
+        const dismissOldest = chiusureToast.get(oldest);
+        if (dismissOldest) dismissOldest(true); else oldest.remove();
     }
-
-    requestAnimationFrame(() => toast.classList.add("app-toast-show"));
-
-    setTimeout(() => {
-        toast.classList.remove("app-toast-show");
-        toast.classList.add("app-toast-hide");
-        setTimeout(() => toast.remove(), 260);
-    }, 2500);
+    requestAnimationFrame(() => { if (!closing) toast.classList.add("app-toast-show"); });
+    timer = setTimeout(dismiss, remaining);
+    return toast;
 }
 
 // =========================

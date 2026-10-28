@@ -878,3 +878,447 @@ test('Daily summary uses the studio date and a failed read is not presented as z
     await context.updateDailySummary();
     assert.equal(nodes.dayCount.textContent, '—');
 });
+
+function popupDeferred() {
+    let resolve;
+    const promise = new Promise(done => { resolve = done; });
+    return { promise, resolve };
+}
+
+function deletionPopupContext() {
+    const { context, nodes } = mainContext();
+    nodes.btnEliminaEvento = new Element('button');
+    context.window.eventoSelezionato = calendarTestEvent();
+    context.window.closeCalls = 0;
+    context.window.refetchCalls = 0;
+    context.chiudiModificaModal = () => { context.window.closeCalls++; };
+    context.console = { error() {} };
+    vm.runInContext('calendar = { refetchEvents() { window.refetchCalls++; } };', context);
+    return { context, nodes };
+}
+
+test('Cancelling the styled delete confirmation performs no DELETE and leaves the edit controls usable', async () => {
+    const { context, nodes } = deletionPopupContext();
+    const prompts = [];
+    context.mostraConferma = async options => { prompts.push(options); return false; };
+    context.fetchJsonOrThrow = () => assert.fail('Cancelled deletion must never reach the API');
+    await context.eliminaEvento();
+    assert.equal(prompts.length, 1);
+    assert.equal(prompts[0].pericolosa, true);
+    assert.equal(nodes.btnEliminaEvento.disabled, false);
+    assert.equal(context.window.closeCalls, 0);
+    assert.equal(context.window.refetchCalls, 0);
+});
+
+test('Delete is guarded during both the custom confirmation and the network request', async () => {
+    const { context, nodes } = deletionPopupContext();
+    const decision = popupDeferred();
+    const request = popupDeferred();
+    const calls = [];
+    let prompts = 0;
+    context.mostraConferma = () => { prompts++; return decision.promise; };
+    context.fetchJsonOrThrow = (url, options) => { calls.push({ url, method: options.method }); return request.promise; };
+    const pending = context.eliminaEvento();
+    await context.eliminaEvento();
+    assert.equal(prompts, 1);
+    assert.equal(calls.length, 0);
+    decision.resolve(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.deepEqual(calls, [{ url: '/api/appuntamenti/42', method: 'DELETE' }]);
+    await context.eliminaEvento();
+    assert.equal(calls.length, 1);
+    request.resolve({ success: true });
+    await pending;
+    assert.equal(nodes.btnEliminaEvento.disabled, false);
+    assert.equal(context.window.closeCalls, 1);
+    assert.equal(context.window.refetchCalls, 1);
+});
+
+test('Changing appointments while the delete dialog is open aborts the stale deletion', async () => {
+    const { context, nodes } = deletionPopupContext();
+    const decision = popupDeferred();
+    context.mostraConferma = () => decision.promise;
+    context.fetchJsonOrThrow = () => assert.fail('A stale dialog must not delete either appointment');
+    const pending = context.eliminaEvento();
+    context.window.eventoSelezionato = { ...calendarTestEvent(), id: '43' };
+    decision.resolve(true);
+    await pending;
+    assert.equal(nodes.btnEliminaEvento.disabled, false);
+    assert.equal(context.window.closeCalls, 0);
+});
+
+test('A completed deletion refreshes the calendar without closing a subsequently selected appointment', async () => {
+    const { context } = deletionPopupContext();
+    const request = popupDeferred();
+    const started = popupDeferred();
+    const calls = [];
+    context.mostraConferma = async () => true;
+    context.fetchJsonOrThrow = (url, options) => {
+        calls.push({ url, method: options.method });
+        started.resolve();
+        return request.promise;
+    };
+    const pending = context.eliminaEvento();
+    await started.promise;
+    context.window.eventoSelezionato = { ...calendarTestEvent(), id: '43' };
+    request.resolve({ success: true });
+    await pending;
+    assert.deepEqual(calls, [{ url: '/api/appuntamenti/42', method: 'DELETE' }]);
+    assert.equal(context.window.eventoSelezionato.id, '43');
+    assert.equal(context.window.closeCalls, 0);
+    assert.equal(context.window.refetchCalls, 1);
+});
+
+test('A failed deletion keeps the appointment open and unlocks the delete button for a retry', async () => {
+    const { context, nodes } = deletionPopupContext();
+    const notices = [];
+    context.mostraConferma = async () => true;
+    context.mostraToast = (message, type) => notices.push({ message, type });
+    context.fetchJsonOrThrow = async () => { throw new Error('Eliminazione simulata non riuscita'); };
+    await context.eliminaEvento();
+    assert.equal(nodes.btnEliminaEvento.disabled, false);
+    assert.equal(context.window.closeCalls, 0);
+    assert.equal(context.window.refetchCalls, 0);
+    assert.equal(notices.at(-1).type, 'error');
+    assert.match(notices.at(-1).message, /non riuscita/);
+});
+
+async function emailRetryPopupContext(status = 'unknown') {
+    const { context, nodes } = mainContext();
+    nodes.confermeEmailList = new Element();
+    context.window.eventoSelezionato = calendarTestEvent();
+    context.console = { error() {} };
+    const posts = [];
+    const reads = [];
+    const persona = { cliente_id: '101', nome: 'Mario Test', status, has_email: true, can_send: true };
+    const state = { post: async () => ({ email_confirmation: { requested: true, sent_count: 1 } }) };
+    context.fetchJsonOrThrow = (url, options = {}) => {
+        if (options.method === 'POST') {
+            posts.push({ url, body: JSON.parse(options.body) });
+            return state.post();
+        }
+        reads.push(url);
+        return Promise.resolve({ destinatari: [persona] });
+    };
+    await context.caricaConfermeEmail('42');
+    const retry = () => nodes.confermeEmailList.children[0].children.find(child => child.tag === 'button');
+    return { context, nodes, posts, reads, state, retry };
+}
+
+test('Cancelling an uncertain-email dialog preserves its duplicate warning and sends no email', async () => {
+    const { context, posts, retry } = await emailRetryPopupContext('unknown');
+    const prompts = [];
+    context.mostraConferma = async options => { prompts.push(options); return false; };
+    await retry().listeners.click();
+    assert.equal(prompts.length, 1);
+    assert.match(prompts[0].messaggio, /già partita|già inviata/i);
+    assert.match(prompts[0].messaggio, /duplic/i);
+    assert.equal(posts.length, 0);
+    assert.equal(retry().disabled, false);
+});
+
+test('Uncertain-email retry keeps the explicit flag and prevents duplicate clicks while confirming or sending', async () => {
+    const { context, posts, state, retry } = await emailRetryPopupContext('unknown');
+    const decision = popupDeferred();
+    const request = popupDeferred();
+    let prompts = 0;
+    context.mostraConferma = () => { prompts++; return decision.promise; };
+    state.post = () => request.promise;
+    const originalButton = retry();
+    const pending = originalButton.listeners.click();
+    await originalButton.listeners.click();
+    assert.equal(prompts, 1);
+    assert.equal(posts.length, 0);
+    decision.resolve(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    await originalButton.listeners.click();
+    assert.deepEqual(posts, [{ url: '/api/appuntamenti/42/conferme', body: { cliente_id: '101', conferma_esito_incerto: true } }]);
+    request.resolve({ email_confirmation: { requested: true, sent_count: 1 } });
+    await pending;
+    assert.equal(retry().disabled, false);
+});
+
+test('An email confirmation accepted after changing appointments does not send a stale request', async () => {
+    const { context, posts, retry } = await emailRetryPopupContext();
+    const decision = popupDeferred();
+    context.mostraConferma = () => decision.promise;
+    const pending = retry().listeners.click();
+    context.window.eventoSelezionato = { ...calendarTestEvent(), id: '43' };
+    decision.resolve(true);
+    await pending;
+    assert.equal(posts.length, 0);
+});
+
+test('An in-flight email result never overwrites the newly selected appointment confirmation list', async () => {
+    const { context, nodes, posts, reads, state, retry } = await emailRetryPopupContext();
+    const request = popupDeferred();
+    const started = popupDeferred();
+    context.mostraConferma = async () => true;
+    state.post = () => { started.resolve(); return request.promise; };
+    const pending = retry().listeners.click();
+    await started.promise;
+    assert.equal(posts.length, 1);
+    context.window.eventoSelezionato = { ...calendarTestEvent(), id: '43' };
+    nodes.confermeEmailList.textContent = 'Stato del nuovo appuntamento';
+    request.resolve({ email_confirmation: { requested: true, sent_count: 1 } });
+    await pending;
+    assert.equal(reads.length, 1);
+    assert.equal(nodes.confermeEmailList.textContent, 'Stato del nuovo appuntamento');
+});
+
+test('Untracked-email warning remains distinct and a failed send restores a usable retry', async () => {
+    const { context, posts, state, retry } = await emailRetryPopupContext('untracked');
+    const prompts = [];
+    const notices = [];
+    context.mostraConferma = async options => { prompts.push(options); return true; };
+    context.mostraToast = (message, type) => notices.push({ message, type });
+    state.post = async () => { throw new Error('Invio simulato non riuscito'); };
+    await retry().listeners.click();
+    assert.match(prompts[0].messaggio, /storico/i);
+    assert.deepEqual(posts[0].body, { cliente_id: '101', conferma_esito_incerto: false });
+    assert.equal(notices.at(-1).type, 'error');
+    assert.equal(retry().disabled, false);
+});
+
+function popupComponentsContext() {
+    const nodes = {};
+    const windowListeners = {};
+    const document = { activeElement: null };
+    let now = 0;
+    let timerId = 0;
+    const timers = new Map();
+    class PopupElement extends Element {
+        constructor(tag = 'div') { super(tag); this.isConnected = false; this.open = false; this.focusCalls = 0; }
+        append(...items) { items.forEach(item => this.appendChild(item)); }
+        appendChild(item) {
+            item.parentElement = this;
+            item.isConnected = this.isConnected;
+            this.children.push(item);
+            return item;
+        }
+        get firstElementChild() { return this.children[0] || null; }
+        remove() {
+            if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(item => item !== this);
+            this.parentElement = null;
+            this.isConnected = false;
+        }
+        removeEventListener(name, listener) { if (this.listeners[name] === listener) delete this.listeners[name]; }
+        contains(target) { return this === target || this.children.some(child => child.contains?.(target)); }
+        focus() { this.focused = true; this.focusCalls++; document.activeElement = this; }
+        showModal() { this.open = true; }
+        close() { this.open = false; this.listeners.close?.({ target: this }); }
+    }
+    document.body = new PopupElement('body'); document.body.isConnected = true;
+    document.getElementById = id => nodes[id] || null;
+    document.querySelectorAll = () => [];
+    document.addEventListener = () => {};
+    document.createTextNode = text => ({ textContent: text });
+    document.createElement = tag => {
+        const element = new PopupElement(tag);
+        Object.defineProperty(element, 'id', { get() { return this._id; }, set(value) { this._id = value; nodes[value] = this; } });
+        return element;
+    };
+    const context = vm.createContext({ document, console,
+        window: { addEventListener: (name, listener) => { (windowListeners[name] ||= []).push(listener); }, confirm: () => false,
+            matchMedia: () => ({ matches: false }), innerWidth: 1200, innerHeight: 800 },
+        requestAnimationFrame: fn => fn(), URLSearchParams,
+        Date: class extends Date { static now() { return now; } },
+        setTimeout: (fn, delay = 0) => { const id = ++timerId; timers.set(id, { at: now + Number(delay), fn }); return id; },
+        clearTimeout: id => timers.delete(id),
+    });
+    vm.runInContext(fs.readFileSync(path.join(root, 'static/main.js'), 'utf8'), context);
+    for (const id of ['appConfirmDialog', 'appConfirmTitle', 'appConfirmMessage', 'appConfirmAccept', 'appConfirmCancel']) {
+        const element = document.createElement(id === 'appConfirmDialog' ? 'dialog' : id.endsWith('Accept') || id.endsWith('Cancel') ? 'button' : 'div');
+        element.id = id;
+        document.body.appendChild(element);
+    }
+    const trigger = document.createElement('button'); document.body.appendChild(trigger); document.activeElement = trigger;
+    const tick = milliseconds => {
+        const target = now + milliseconds;
+        let iterations = 0;
+        while (true) {
+            const due = [...timers.entries()].filter(([, timer]) => timer.at <= target).sort((a, b) => a[1].at - b[1].at)[0];
+            if (!due) break;
+            assert.ok(++iterations < 1000, 'Timer loop must terminate');
+            now = due[1].at; timers.delete(due[0]); due[1].fn();
+        }
+        now = target;
+    };
+    return { context, nodes, trigger, tick, timers, windowListeners };
+}
+
+test('Styled confirmation renders literal text, focuses Cancel, approves once and cleans all listeners', async () => {
+    const { context, nodes, trigger } = popupComponentsContext();
+    const title = '<img src=x onerror=alert(1)>';
+    const message = '<script>non eseguire</script>';
+    const pending = context.mostraConferma({ titolo: title, messaggio: message, conferma: 'Elimina', pericolosa: true });
+    assert.equal(nodes.appConfirmTitle.textContent, title);
+    assert.equal(nodes.appConfirmMessage.textContent, message);
+    assert.equal(nodes.appConfirmTitle.innerHTML, '');
+    assert.equal(nodes.appConfirmMessage.innerHTML, '');
+    assert.equal(nodes.appConfirmAccept.textContent, 'Elimina');
+    assert.equal(nodes.appConfirmDialog.classes.has('is-danger'), true);
+    assert.equal(nodes.appConfirmDialog.open, true);
+    assert.equal(context.document.activeElement, nodes.appConfirmCancel);
+    assert.equal(context.document.body.classes.has('app-confirm-open'), true);
+    const approve = nodes.appConfirmAccept.listeners.click;
+    approve(); approve();
+    assert.equal(await pending, true);
+    assert.equal(nodes.appConfirmDialog.open, false);
+    assert.equal(context.document.body.classes.has('app-confirm-open'), false);
+    assert.equal(Object.keys(nodes.appConfirmDialog.listeners).length, 0);
+    assert.equal(Object.keys(nodes.appConfirmAccept.listeners).length, 0);
+    assert.equal(Object.keys(nodes.appConfirmCancel.listeners).length, 0);
+    assert.equal(trigger.focusCalls, 1);
+    assert.equal(context.document.activeElement, trigger);
+});
+
+test('Only one styled confirmation can be active and cancelling preserves the original prompt', async () => {
+    const { context, nodes } = popupComponentsContext();
+    const first = context.mostraConferma({ titolo: 'Prima conferma', messaggio: 'Prima richiesta' });
+    assert.equal(await context.mostraConferma({ titolo: 'Seconda conferma', messaggio: 'Non deve sostituire la prima' }), false);
+    assert.equal(nodes.appConfirmTitle.textContent, 'Prima conferma');
+    assert.equal(nodes.appConfirmMessage.textContent, 'Prima richiesta');
+    nodes.appConfirmCancel.listeners.click();
+    assert.equal(await first, false);
+    const next = context.mostraConferma({ titolo: 'Nuova conferma', messaggio: 'Ora disponibile' });
+    nodes.appConfirmAccept.listeners.click();
+    assert.equal(await next, true);
+});
+
+for (const dismissal of ['native-cancel', 'backdrop', 'external-close']) {
+    test(`Styled confirmation resolves false on ${dismissal} and removes transient listeners`, async () => {
+        const { context, nodes } = popupComponentsContext();
+        const pending = context.mostraConferma({ titolo: 'Conferma', messaggio: 'Inviare?' });
+        if (dismissal === 'native-cancel') {
+            let prevented = false;
+            nodes.appConfirmDialog.listeners.cancel({ preventDefault() { prevented = true; } });
+            assert.equal(prevented, true);
+        } else if (dismissal === 'backdrop') {
+            nodes.appConfirmDialog.listeners.click({ target: nodes.appConfirmMessage });
+            assert.equal(nodes.appConfirmDialog.open, true, 'Clicking dialog content must not dismiss it');
+            nodes.appConfirmDialog.listeners.click({ target: nodes.appConfirmDialog });
+        } else nodes.appConfirmDialog.close();
+        assert.equal(await pending, false);
+        assert.equal(nodes.appConfirmDialog.open, false);
+        assert.equal(Object.keys(nodes.appConfirmDialog.listeners).length, 0);
+    });
+}
+
+test('Confirmation fallback preserves the native safety prompt, and showModal failure cancels cleanly', async () => {
+    const { context, nodes, trigger } = popupComponentsContext();
+    const original = nodes.appConfirmDialog;
+    delete nodes.appConfirmDialog;
+    const calls = [];
+    context.window.confirm = message => { calls.push(message); return true; };
+    assert.equal(await context.mostraConferma({ titolo: 'Titolo', messaggio: 'Conferma nativa' }), true);
+    assert.deepEqual(calls, ['Conferma nativa']);
+    nodes.appConfirmDialog = original;
+    original.showModal = () => { throw new Error('Dialogo non disponibile'); };
+    trigger.isConnected = false;
+    assert.equal(await context.mostraConferma({ titolo: 'Titolo', messaggio: 'Non aperto' }), false);
+    assert.equal(Object.keys(original.listeners).length, 0);
+    assert.equal(context.document.body.classes.has('app-confirm-open'), false);
+    assert.equal(trigger.focusCalls, 0, 'Detached triggers must never receive restored focus');
+});
+
+test('Escape belongs to the top confirmation and does not close the appointment detail beneath it', async () => {
+    const { context, nodes, windowListeners } = popupComponentsContext();
+    nodes.modificaModal = context.document.createElement('div');
+    nodes.modificaModal.style.display = 'block';
+    let closed = 0;
+    context.chiudiModificaModal = () => { closed++; };
+    const pending = context.mostraConferma({ titolo: 'Conferma', messaggio: 'Eliminare?' });
+    windowListeners.keydown.forEach(listener => listener({ key: 'Escape' }));
+    assert.equal(closed, 0);
+    nodes.appConfirmDialog.listeners.cancel({ preventDefault() {} });
+    assert.equal(await pending, false);
+    assert.equal(nodes.modificaModal.style.display, 'block');
+    windowListeners.keydown.forEach(listener => listener({ key: 'Escape' }));
+    assert.equal(closed, 1, 'A subsequent Escape can close the detail after confirmation dismissal');
+});
+
+test('Toasts render literal message/title text, use accessible status and error roles, and fall back safely for unknown types', () => {
+    const { context, nodes } = popupComponentsContext();
+    const message = '<img src=x onerror=alert(1)>';
+    const title = '<b>Solo testo</b>';
+    const toast = context.mostraToast(message, 'success', { titolo: title });
+    const copy = toast.children[0].children[1];
+    assert.equal(copy.children[0].textContent, title);
+    assert.equal(copy.children[1].textContent, message);
+    assert.equal(copy.children[0].innerHTML, '');
+    assert.equal(copy.children[1].innerHTML, '');
+    assert.equal(toast.getAttribute('role'), 'status');
+    assert.equal(toast.getAttribute('aria-atomic'), 'true');
+    assert.equal(toast.children[0].children[2].getAttribute('aria-label'), 'Chiudi notifica');
+    assert.equal(nodes.appToastContainer.getAttribute('aria-label'), 'Notifiche del gestionale');
+    const error = context.mostraToast('Errore', 'error');
+    assert.equal(error.getAttribute('role'), 'alert');
+    const fallback = context.mostraToast(null, '__proto__');
+    assert.equal(fallback.className, 'app-toast app-toast-info');
+    assert.equal(fallback.children[0].children[1].children[1].textContent, '');
+});
+
+for (const [type, duration] of [['success', 5000], ['info', 6000], ['warning', 9000], ['error', 10000]]) {
+    test(`${type} notifications remain readable for ${duration}ms then disappear after their exit animation`, () => {
+        const { context, tick } = popupComponentsContext();
+        const toast = context.mostraToast('Messaggio di prova', type);
+        assert.equal(toast.style['--toast-duration'], `${duration}ms`);
+        tick(duration - 1);
+        assert.equal(toast.isConnected, true);
+        assert.equal(toast.classes.has('app-toast-hide'), false);
+        tick(1);
+        assert.equal(toast.classes.has('app-toast-hide'), true);
+        tick(199);
+        assert.equal(toast.isConnected, true);
+        tick(1);
+        assert.equal(toast.isConnected, false);
+    });
+}
+
+test('Toast close is idempotent and retaining only the newest three clears discarded timers', () => {
+    const { context, nodes, tick, timers } = popupComponentsContext();
+    const toasts = Array.from({ length: 4 }, (_, index) => context.mostraToast(`Notifica ${index + 1}`));
+    assert.equal(toasts[0].isConnected, false);
+    assert.deepEqual(nodes.appToastContainer.children, toasts.slice(1));
+    assert.equal(timers.size, 3);
+    const close = toasts[3].children[0].children[2];
+    close.listeners.click(); close.listeners.click();
+    tick(200);
+    assert.equal(toasts[3].isConnected, false);
+    assert.equal(nodes.appToastContainer.children.length, 2);
+    tick(10000);
+    assert.equal(nodes.appToastContainer.children.length, 0);
+    assert.equal(timers.size, 0);
+});
+
+test('Toast timeout pauses independently for pointer and keyboard focus, but a touch does not pin it open', () => {
+    const { context, tick } = popupComponentsContext();
+    const toast = context.mostraToast('Da leggere con calma');
+    const close = toast.children[0].children[2];
+    tick(1000);
+    toast.listeners.pointerenter({ pointerType: 'mouse' });
+    toast.listeners.focusin();
+    tick(20000);
+    assert.equal(toast.isConnected, true);
+    assert.equal(toast.classes.has('is-paused'), true);
+    toast.listeners.pointerleave();
+    tick(20000);
+    assert.equal(toast.classes.has('is-paused'), true, 'Keyboard focus must keep the timeout paused');
+    toast.listeners.focusout({ relatedTarget: close });
+    tick(20000);
+    assert.equal(toast.isConnected, true, 'Moving focus within the toast must not resume its timeout');
+    toast.listeners.focusout({ relatedTarget: null });
+    assert.equal(toast.classes.has('is-paused'), false);
+    tick(3999);
+    assert.equal(toast.classes.has('app-toast-hide'), false);
+    tick(201);
+    assert.equal(toast.isConnected, false);
+    const touchToast = context.mostraToast('Notifica touch');
+    touchToast.listeners.pointerenter({ pointerType: 'touch' });
+    assert.equal(touchToast.classes.has('is-paused'), false);
+    tick(5200);
+    assert.equal(touchToast.isConnected, false);
+});

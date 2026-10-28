@@ -511,6 +511,22 @@
         <div id="dashboardAppList" class="dashboard-app-list"></div>
     </div>
 </div>
+<!-- Native top-layer dialog: keyboard focus stays inside the confirmation. -->
+<dialog id="appConfirmDialog" class="app-confirm-dialog" aria-labelledby="appConfirmTitle" aria-describedby="appConfirmMessage">
+    <div class="app-confirm-card">
+        <div class="app-confirm-icon" aria-hidden="true">
+            <svg class="app-confirm-icon-mail" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/></svg>
+            <svg class="app-confirm-icon-delete" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>
+        </div>
+        <p class="app-confirm-eyebrow">Prima di procedere</p>
+        <h2 id="appConfirmTitle"></h2>
+        <p id="appConfirmMessage"></p>
+        <div class="app-confirm-actions">
+            <button type="button" id="appConfirmCancel" class="app-confirm-cancel" autofocus>Annulla</button>
+            <button type="button" id="appConfirmAccept" class="app-confirm-accept">Conferma</button>
+        </div>
+    </div>
+</dialog>
 <script src="{{ static_file('main.js') }}"></script>
 
 
