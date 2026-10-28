@@ -59,14 +59,28 @@ consegna garantita nella casella del destinatario.
 
 ## Stato persistente e reinvio individuale
 
+La conferma con allegato ICS è attiva automaticamente durante **Crea appuntamento**
+quando almeno uno dei clienti selezionati ha un'email. Per le coppie vengono
+contattate entrambe le persone se entrambe hanno un indirizzo, altrimenti solo
+quella con email. L'invio avviene dopo il salvataggio dell'appuntamento, non al
+momento della selezione del cliente.
+
+È possibile togliere la spunta per non inviare la conferma per quell'appuntamento:
+la scelta resta valida durante la compilazione e gli eventuali tentativi dopo un
+errore. Una nuova apertura del modulo ripristina il comportamento automatico.
+Gli slot **Occupato** non inviano conferme. Il server mantiene il medesimo default
+quando il campo `invia_conferma_email` è assente; un valore esplicito `false`
+disattiva l'invio. Le protezioni contro i reinvii incerti rimangono invariate.
+
 Durante **Crea appuntamento**, se una persona selezionata non ha un'email,
 compare un campo sotto la spunta di conferma. Per una coppia i campi sono distinti
 e riportano il nome della persona. Compilandoli e premendo **Salva appuntamento**,
 gli indirizzi validi vengono salvati nelle rispettive anagrafiche prima di creare
 l'appuntamento e inviare le eventuali conferme con ICS.
 
-I campi sono facoltativi: un campo vuoto non modifica l'anagrafica. È possibile
-salvare l'indirizzo anche senza spuntare l'invio, nel qual caso non parte alcuna
+I campi sono facoltativi: un campo vuoto non modifica l'anagrafica. Inserire un
+indirizzo valido attiva automaticamente la conferma, salvo disattivazione manuale.
+È possibile salvare l'indirizzo e togliere la spunta, nel qual caso non parte alcuna
 conferma. Chiudere il box o annullare l'avviso di sovrapposizione non salva le email.
 Le email già presenti non vengono sovrascritte da questa aggiunta rapida, nemmeno
 se un altro operatore le inserisce durante il salvataggio.

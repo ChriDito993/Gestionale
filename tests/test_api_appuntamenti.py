@@ -15,6 +15,15 @@ class FakeResponse:
         self.data = data
 
 
+@pytest.fixture(autouse=True)
+def prevent_live_email_transports(monkeypatch):
+    """Transport tests replace these with their own doubles; no test may send real mail."""
+    def blocked(*args, **kwargs):
+        raise AssertionError('Live email transport disabled in tests')
+    monkeypatch.setattr(app_module.smtplib, 'SMTP_SSL', blocked)
+    monkeypatch.setattr(app_module.requests, 'post', blocked)
+
+
 class FakeQuery:
     def __init__(self, fake_supabase, table_name):
         self.fake_supabase = fake_supabase
@@ -398,8 +407,9 @@ def test_post_appuntamenti_sends_confirmation_without_blocking_creation(authed_c
     assert servizio_id == 10
 
 
-def test_post_appuntamenti_does_not_send_confirmation_without_opt_in(authed_client, monkeypatch):
-    client, _fake_supabase = authed_client
+def test_post_appuntamenti_respects_explicit_email_opt_out(authed_client, monkeypatch):
+    client, db = authed_client
+    db.clienti['101'] = {'id': '101', 'nome': 'Mario', 'email': 'mario@example.com'}
     chiamate_email = []
     monkeypatch.setattr(
         app_module,
@@ -414,12 +424,86 @@ def test_post_appuntamenti_does_not_send_confirmation_without_opt_in(authed_clie
             "start_datetime": "2026-03-11T10:00:00",
             "end_datetime": "2026-03-11T11:00:00",
             "clienti_ids": [101],
+            "invia_conferma_email": False,
         },
     )
 
     assert response.status_code == 200
     assert chiamate_email == []
     assert response.get_json()["email_confirmation"]["requested"] is False
+    assert db.appuntamenti['1']['email_conferme']['101']['status'] == 'not_requested'
+
+
+@pytest.mark.parametrize('emails', [
+    ['mario@example.com'],
+    ['mario@example.com', 'anna@example.com'],
+    ['mario@example.com', ''],
+    ['', None],
+])
+def test_creation_automatically_confirms_only_available_recipients_with_individual_ics(authed_client, monkeypatch, emails):
+    client, db = authed_client
+    db.servizi['20'] = {'id': '20', 'nome': 'Ginnastica di coppia' if len(emails) == 2 else 'Massoterapia'}
+    ids = [str(index + 101) for index in range(len(emails))]
+    for id, email, name in zip(ids, emails, ['Mario', 'Anna']):
+        db.clienti[id] = {'id': id, 'nome': name, 'cognome': 'Test', 'email': email}
+    sent = []
+    def send(email, subject, body, allegati=None):
+        sent.append((email, allegati))
+        return {'success': True, 'provider': 'test'}
+    monkeypatch.setattr(app_module, 'invia_email_dettagliata', send)
+    response = client.post('/api/appuntamenti', json={
+        'servizio_id': '20', 'clienti_ids': ids,
+        'start_datetime': '2026-11-11T10:00:00', 'end_datetime': '2026-11-11T11:00:00',
+    })
+    assert response.status_code == 200
+    assert response.get_json()['success'] is True
+    assert response.get_json()['email_confirmation']['sent_count'] == len([email for email in emails if email])
+    assert [email for email, _attachments in sent] == [email for email in emails if email]
+    assert all(attachments and attachments[0][0].endswith('.ics') for _email, attachments in sent)
+    if len(sent) == 2:
+        assert 'Mario-Test' in sent[0][1][0][0]
+        assert 'Anna-Test' in sent[1][1][0][0]
+    assert len(db.appuntamenti) == 1
+    assert len(db.appuntamenti_clienti) == len(emails)
+
+
+def test_occupied_creation_never_sends_automatic_confirmation(authed_client, monkeypatch):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'invia_conferme_appuntamento', lambda *args: pytest.fail('No confirmation for busy slots'))
+    response = client.post('/api/appuntamenti', json={
+        'servizio_id': '10', 'clienti_ids': ['101'], 'occupato': True,
+        'start_datetime': '2026-11-11T10:00:00', 'end_datetime': '2026-11-11T11:00:00',
+    })
+    assert response.status_code == 200
+    assert response.get_json()['email_confirmation']['requested'] is False
+    assert db.appuntamenti['1']['email_conferme'] == {}
+
+
+@pytest.mark.parametrize('extra', [
+    {'ripeti_settimanale': True, 'occorrenze': 2},
+    {'slots_personalizzati': [
+        {'start_datetime': '2026-11-11T10:00:00', 'end_datetime': '2026-11-11T11:00:00'},
+        {'start_datetime': '2026-11-13T15:00:00', 'end_datetime': '2026-11-13T16:00:00'},
+    ]},
+])
+def test_automatic_confirmation_uses_all_saved_occurrences_and_never_blocks_on_provider_error(authed_client, monkeypatch, extra):
+    client, db = authed_client
+    db.servizi['10'] = {'id': '10', 'nome': 'Massoterapia'}
+    db.clienti['101'] = {'id': '101', 'nome': 'Mario', 'email': 'mario@example.com'}
+    attempts = []
+    def fail(email, subject, body, allegati=None):
+        attempts.append(allegati)
+        return {'success': False, 'provider': 'test', 'error_code': 'connection_failed', 'message': 'Errore di connessione simulato'}
+    monkeypatch.setattr(app_module, 'invia_email_dettagliata', fail)
+    response = client.post('/api/appuntamenti', json={
+        'servizio_id': '10', 'clienti_ids': ['101'],
+        'start_datetime': '2026-11-11T10:00:00', 'end_datetime': '2026-11-11T11:00:00', **extra,
+    })
+    assert response.status_code == 200
+    assert response.get_json()['created_count'] == 2
+    assert response.get_json()['email_confirmation']['failed_count'] == 2
+    assert len(db.appuntamenti) == 2
+    assert len(attempts) == 2
 
 
 def test_invia_email_uses_gmail_smtp_when_configured(monkeypatch):

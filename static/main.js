@@ -7,6 +7,7 @@ let tipiPacchettoData = [];
 let tuttiClienti = [];
 let clientiSelezionati = [];
 let emailNuovoEvento = new Map();
+let sceltaManualeConfermaEmail = null;
 const MOBILE_BREAKPOINT = 900;
 const DEFAULT_APPOINTMENT_MINUTES = 60;
 const SERVIZIO_COLORI = {
@@ -602,6 +603,7 @@ function resetStatoOccupato() {
     if (!occupatoCheckbox) return;
 
     occupatoCheckbox.checked = false;
+    sceltaManualeConfermaEmail = null;
     if (emailConfermaCheckbox) emailConfermaCheckbox.checked = false;
     sincronizzaStatoOccupatoUI();
 }
@@ -1613,6 +1615,7 @@ async function aggiornaOrario(infoOrEvent) {
 =================================*/
 
 function aggiornaRiepilogoNuovoEvento() {
+    sincronizzaConfermaEmailAutomatica();
     const riepilogo = document.getElementById("eventoRiepilogo");
     if (!riepilogo) return;
 
@@ -1647,10 +1650,11 @@ function aggiornaRiepilogoNuovoEvento() {
     const hintEmail = document.getElementById("eventoEmailHint");
     if (hintEmail) {
         const calendario = "Include il file per aggiungere la seduta al calendario.";
-        hintEmail.textContent = !clientiSelezionati.length ? calendario
+        const automatica = 'Attiva automaticamente con un indirizzo disponibile; puoi disattivarla per questo appuntamento.';
+        hintEmail.textContent = !clientiSelezionati.length ? automatica + ' ' + calendario
             : !conEmail ? "Puoi aggiungere qui sotto gli indirizzi email mancanti."
-            : conEmail < clientiSelezionati.length ? `Indirizzo disponibile per ${conEmail} dei clienti selezionati. ${calendario}`
-            : clientiSelezionati.length === 2 ? `La riceveranno entrambe le persone. ${calendario}` : calendario;
+            : conEmail < clientiSelezionati.length ? `Invio ai soli clienti con email (${conEmail} su ${clientiSelezionati.length}), se l’opzione è attiva. ${calendario}`
+            : `${automatica} ${calendario}`;
     }
 
     const badge = document.getElementById("eventoOpzioniAttive");
@@ -1674,7 +1678,32 @@ function leggiEmailNuovoEvento(cliente) {
     return String(document.getElementById('eventoEmailCliente-' + id)?.value ?? emailNuovoEvento.get(id) ?? '').trim();
 }
 
+function sincronizzaConfermaEmailAutomatica() {
+    const checkbox = document.getElementById('eventoInviaConfermaEmail');
+    if (!checkbox) return;
+    const occupato = !!document.getElementById('eventoOccupato')?.checked;
+    const conEmail = clientiSelezionati.some(cliente => String(cliente.email || '').trim()
+        || emailValidaNuovoEvento(leggiEmailNuovoEvento(cliente)));
+    checkbox.disabled = occupato;
+    checkbox.checked = !occupato && (sceltaManualeConfermaEmail ?? conEmail);
+}
+
+function inizializzaConfermaEmailAutomatica() {
+    const checkbox = document.getElementById('eventoInviaConfermaEmail');
+    if (!checkbox || checkbox.dataset.autoEmailBound === '1') return;
+    checkbox.dataset.autoEmailBound = '1';
+    const registraScelta = () => {
+        sceltaManualeConfermaEmail = checkbox.checked;
+        aggiornaRiepilogoNuovoEvento();
+    };
+    // Capture the choice before the modal's bubbling input handler refreshes the default.
+    checkbox.addEventListener('input', registraScelta);
+    checkbox.addEventListener('change', registraScelta);
+}
+
 function aggiornaCampiEmailNuovoEvento() {
+    inizializzaConfermaEmailAutomatica();
+    sincronizzaConfermaEmailAutomatica();
     const box = document.getElementById('eventoEmailMancanti');
     const fields = document.getElementById('eventoEmailMancantiCampi');
     if (!box || !fields) return;
@@ -1711,6 +1740,7 @@ function aggiornaCampiEmailNuovoEvento() {
         input.addEventListener('change', aggiornaBozza);
         row.append(label, input); fields.appendChild(row);
     });
+    sincronizzaConfermaEmailAutomatica();
 }
 
 function raccogliEmailNuovoEvento(clienti) {
@@ -1756,6 +1786,8 @@ function inizializzaRiepilogoNuovoEvento() {
 function apriModal() {
     clientiSelezionati = [];
     emailNuovoEvento.clear();
+    sceltaManualeConfermaEmail = null;
+    inizializzaConfermaEmailAutomatica();
 
     if (!selectedStart || !selectedEnd) {
         impostaSelezioneDaData(calcolaStartDefaultPerMobile());
@@ -1891,7 +1923,8 @@ async function confermaSovrapposizioni(slots, ignoreId = null) {
 }
 
 async function salvaEvento() {
-
+    // Resolve defaults from live DOM values too: password managers/autofill may not emit input events.
+    sincronizzaConfermaEmailAutomatica();
     const servizioId = document.getElementById("servizioSelect").value;
     const pacchettoId = document.getElementById("pacchettoSelect")?.value || null;
     const repeatSettimanale = !!document.getElementById("eventoRipetiSettimanale")?.checked;

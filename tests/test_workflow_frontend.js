@@ -155,6 +155,167 @@ function emailBookingContext() {
     return { context, nodes };
 }
 
+test('Selecting a client with an address automatically enables confirmation and removing them clears the default', () => {
+    const { context, nodes } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101", nome: "Mario"}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+    vm.runInContext('clientiSelezionati = [{id: "202", nome: "Anna", email: " anna@example.com "}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, true);
+    vm.runInContext('clientiSelezionati = [];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+});
+
+test('Couple bookings automatically request confirmation with one or both available addresses', async () => {
+    for (const addresses of [1, 2]) {
+        const { context, nodes } = emailBookingContext();
+        nodes.eventoRiepilogo = new Element(); nodes.eventoRiepilogoEmail = new Element();
+        vm.runInContext('clientiSelezionati = [{id: "101", nome: "Mario", email: "mario@example.com"}, {id: "202", nome: "Anna"}];', context);
+        if (addresses === 2) vm.runInContext('clientiSelezionati[1].email = "anna@example.com";', context);
+        context.aggiornaCampiEmailNuovoEvento();
+        context.aggiornaRiepilogoNuovoEvento();
+        assert.equal(nodes.eventoInviaConfermaEmail.checked, true);
+        assert.match(nodes.eventoRiepilogoEmail.textContent, new RegExp(`per ${addresses} person`));
+        const calls = [];
+        context.fetchJsonOrThrow = async (url, options) => {
+            calls.push({ url, body: JSON.parse(options.body) });
+            return url.endsWith('/conflitti') ? { count: 0 } : { created_count: 1 };
+        };
+        await context.salvaEvento();
+        assert.deepEqual(calls.at(-1).body.clienti_ids, ['101', '202']);
+        assert.equal(calls.at(-1).body.invia_conferma_email, true);
+        assert.equal(calls.some(call => call.url.endsWith('/email')), false);
+    }
+});
+
+test('Manual confirmation opt-out survives selection changes, rerenders, save errors and retry', async () => {
+    const { context, nodes } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101", email: "mario@example.com"}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, true);
+    nodes.eventoInviaConfermaEmail.checked = false;
+    nodes.eventoInviaConfermaEmail.listeners.change();
+    vm.runInContext('clientiSelezionati.push({id: "202", email: "anna@example.com"});', context);
+    context.aggiornaCampiEmailNuovoEvento(); context.aggiornaRiepilogoNuovoEvento();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+    vm.runInContext('clientiSelezionati = [clientiSelezionati[1]];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    const requests = [];
+    let fail = true;
+    context.fetchJsonOrThrow = async (url, options) => {
+        if (url.endsWith('/conflitti')) return { count: 0 };
+        requests.push(JSON.parse(options.body));
+        if (fail) throw new Error('Errore di rete');
+        return { created_count: 1 };
+    };
+    await context.salvaEvento();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+    assert.equal(nodes.btnSalvaEvento.disabled, false);
+    fail = false;
+    await context.salvaEvento();
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every(body => body.invia_conferma_email === false));
+});
+
+test('Checkbox input records opt-out before the bubbling modal summary and subsequent change event', async () => {
+    const { context, nodes } = emailBookingContext();
+    nodes.eventoModal = new Element();
+    nodes.eventoRiepilogo = new Element(); nodes.eventoRiepilogoEmail = new Element();
+    vm.runInContext('clientiSelezionati = [{id: "101", email: "mario@example.com"}];', context);
+    context.inizializzaRiepilogoNuovoEvento();
+    context.aggiornaCampiEmailNuovoEvento();
+    const checkbox = nodes.eventoInviaConfermaEmail;
+    assert.equal(checkbox.checked, true);
+    checkbox.checked = false;
+    checkbox.listeners.input();
+    nodes.eventoModal.listeners.input();
+    assert.equal(checkbox.checked, false);
+    checkbox.listeners.change();
+    nodes.eventoModal.listeners.change();
+    assert.equal(checkbox.checked, false);
+    assert.equal(nodes.eventoRiepilogoEmail.textContent, 'Conferma email non richiesta');
+    const requests = [];
+    context.fetchJsonOrThrow = async (url, options) => {
+        if (url.endsWith('/conflitti')) return { count: 0 };
+        requests.push(JSON.parse(options.body));
+        return { created_count: 1 };
+    };
+    await context.salvaEvento();
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].invia_conferma_email, false);
+});
+
+test('Occupied mode suppresses automatic confirmation and preserves the choice when returning to a booking', () => {
+    const { context, nodes } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101", email: "mario@example.com"}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, true);
+    nodes.eventoOccupato.checked = true; context.sincronizzaStatoOccupatoUI();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+    assert.equal(nodes.eventoInviaConfermaEmail.disabled, true);
+    nodes.eventoOccupato.checked = false; context.sincronizzaStatoOccupatoUI();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, true);
+    assert.equal(nodes.eventoInviaConfermaEmail.disabled, false);
+    nodes.eventoInviaConfermaEmail.checked = false; nodes.eventoInviaConfermaEmail.listeners.change();
+    nodes.eventoOccupato.checked = true; context.sincronizzaStatoOccupatoUI();
+    nodes.eventoOccupato.checked = false; context.sincronizzaStatoOccupatoUI();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+});
+
+test('Opening a new appointment discards the previous booking opt-out', () => {
+    const { context, nodes } = emailBookingContext();
+    nodes.eventoModal = new Element();
+    for (const fn of ['inizializzaRicercaClienti', 'sincronizzaCampiDataOraNuovoEvento', 'resetRicorrenzaEvento', 'resetSlotPersonalizzati']) context[fn] = () => {};
+    vm.runInContext('selectedStart = "2026-11-11T10:00:00"; selectedEnd = "2026-11-11T11:00:00"; clientiSelezionati = [{id: "101", email: "mario@example.com"}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    nodes.eventoInviaConfermaEmail.checked = false; nodes.eventoInviaConfermaEmail.listeners.change();
+    context.apriModal();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+    assert.equal(vm.runInContext('sceltaManualeConfermaEmail', context), null);
+    vm.runInContext('clientiSelezionati = [{id: "202", email: "anna@example.com"}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, true);
+});
+
+test('A valid inline address enables confirmation automatically, but an explicit opt-out is retained while typing', () => {
+    const { context, nodes } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101", nome: "Mario"}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    const input = nodes['eventoEmailCliente-101'];
+    input.value = 'non-valida'; input.listeners.input();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+    input.value = 'mario@example.com'; input.listeners.input();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, true);
+    input.value = ''; input.listeners.change();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+    input.value = 'mario@example.com'; input.listeners.change();
+    nodes.eventoInviaConfermaEmail.checked = false; nodes.eventoInviaConfermaEmail.listeners.change();
+    input.value = 'mario.nuovo@example.com'; input.listeners.input();
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+});
+
+test('Save detects an autofilled address without input events and automatically requests its confirmation', async () => {
+    const { context, nodes } = emailBookingContext();
+    vm.runInContext('clientiSelezionati = [{id: "101", nome: "Mario"}];', context);
+    context.aggiornaCampiEmailNuovoEvento();
+    assert.equal(nodes.eventoInviaConfermaEmail.checked, false);
+    nodes['eventoEmailCliente-101'].value = ' mario@example.com ';
+    const calls = [];
+    context.fetchJsonOrThrow = async (url, options) => {
+        const body = JSON.parse(options.body); calls.push({ url, body });
+        if (url.endsWith('/conflitti')) return { count: 0 };
+        if (url.endsWith('/email')) return { id: '101', email: body.email };
+        return { created_count: 1 };
+    };
+    await context.salvaEvento();
+    assert.deepEqual(calls.map(call => call.url), ['/api/appuntamenti/conflitti', '/api/clienti/101/email', '/api/appuntamenti']);
+    assert.equal(calls[1].body.email, 'mario@example.com');
+    assert.equal(calls[2].body.invia_conferma_email, true);
+});
+
 test('Missing emails render per person, preserve drafts and never appear for existing addresses', () => {
     const { context, nodes } = emailBookingContext();
     vm.runInContext('clientiSelezionati = [{id: "101", nome: "Mario"}];', context);
@@ -241,8 +402,11 @@ test('A partial profile-save failure stops booking and retries only the still mi
 });
 
 test('Email can be saved without sending a confirmation, while empty inputs remain optional', async () => {
-    const { context } = emailBookingContext();
+    const { context, nodes } = emailBookingContext();
     vm.runInContext('clientiSelezionati = [{id: "101"}, {id: "202"}]; emailNuovoEvento.set("101", "mario@example.com");', context);
+    context.inizializzaConfermaEmailAutomatica();
+    nodes.eventoInviaConfermaEmail.checked = false;
+    nodes.eventoInviaConfermaEmail.listeners.change();
     const calls = [];
     context.fetchJsonOrThrow = async (url, options) => {
         calls.push({ url, body: JSON.parse(options.body) });

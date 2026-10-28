@@ -1070,7 +1070,8 @@ def crea_appuntamento():
     occupato = occupato_raw is True or (
         isinstance(occupato_raw, str) and occupato_raw.strip().lower() in {"true", "1", "si", "sì"}
     )
-    invia_conferma_raw = data.get("invia_conferma_email", False)
+    # Automatic for available recipients; explicit false still opts out for this booking.
+    invia_conferma_raw = data.get("invia_conferma_email", True)
     invia_conferma_email = invia_conferma_raw is True or (
         isinstance(invia_conferma_raw, str) and invia_conferma_raw.strip().lower() in {"true", "1", "si", "sì"}
     )
