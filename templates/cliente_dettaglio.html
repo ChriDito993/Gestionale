@@ -323,9 +323,11 @@
             <div><label for="modCognome">Cognome</label><input type="text" id="modCognome" value="{{ cliente.cognome or '' }}" placeholder="Cognome"></div>
             <div><label for="modTelefono">Telefono</label><input type="text" id="modTelefono" value="{{ cliente.telefono or '' }}" placeholder="Telefono"></div>
             <div><label for="modEmail">Email</label><input type="email" id="modEmail" value="{{ cliente.email or '' }}" placeholder="Email"></div>
+            <div><label for="modDataNascita">Data di nascita <span class="profile-optional">(facoltativa)</span></label><input type="date" id="modDataNascita" value="{{ cliente.data_nascita or '' }}"{% if data_oggi_studio %} max="{{ data_oggi_studio }}"{% endif %} autocomplete="bday"><small class="profile-birthday-help">Usata per ricordarti il compleanno nel gestionale. Non vengono inviati auguri automatici.</small></div>
         </div>
 
-        <button type="button" class="btn-primary profile-edit-save" onclick="salvaModificaCliente('{{ cliente.id }}')">
+        <p id="profileEditStatus" class="profile-edit-status" role="status" hidden></p>
+        <button type="button" id="profileEditSave" class="btn-primary profile-edit-save" onclick="salvaModificaCliente('{{ cliente.id }}')">
             Salva modifiche
         </button>
     </div>
@@ -344,21 +346,32 @@ function chiudiModificaCliente() {
     document.getElementById("modificaClienteModal").style.display = "none";
 }
 
-function salvaModificaCliente(clienteId) {
-    fetch("/api/clienti/" + clienteId, {
+async function salvaModificaCliente(clienteId) {
+    const birthday = document.getElementById("modDataNascita");
+    const button = document.getElementById("profileEditSave");
+    const status = document.getElementById("profileEditStatus");
+    if (button.disabled || !birthday.reportValidity()) return;
+    button.disabled = true;
+    status.hidden = true;
+    try {
+        const response = await fetch("/api/clienti/" + encodeURIComponent(clienteId), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             nome: document.getElementById("modNome").value,
             cognome: document.getElementById("modCognome").value,
             telefono: document.getElementById("modTelefono").value,
-            email: document.getElementById("modEmail").value
+            email: document.getElementById("modEmail").value,
+            data_nascita: birthday.value || null
         })
-    })
-    .then(res => res.json())
-    .then(() => {
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Impossibile salvare l’anagrafica.");
         location.reload();
-    });
+    } catch (error) {
+        status.textContent = error.message || "Impossibile salvare l’anagrafica. Riprova.";
+        status.hidden = false;
+    } finally { button.disabled = false; }
 }
 
 function toggleStorico() {

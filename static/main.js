@@ -37,6 +37,9 @@ let calendarWeekSequence = 0;
 let nextAppointmentSequence = 0;
 let nextAppointmentEvent = null;
 let dailySummarySequence = 0;
+let birthdayReminderSequence = 0;
+let birthdayReminderDate = "";
+let birthdayReminderSignature = "";
 let confermaPopupAttiva = false;
 let eliminazioneEventoInCorso = false;
 const chiusureToast = new WeakMap();
@@ -122,6 +125,64 @@ async function updateDailySummary() {
         if (label) label.textContent = new Date(`${data.data}T12:00:00`).toLocaleDateString('it-IT', { day: '2-digit', month: 'long' });
     } catch (_) {
         if (sequence === dailySummarySequence) counter.textContent = '—';
+    }
+}
+
+function todayInStudio() {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    const part = type => parts.find(value => value.type === type).value;
+    return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+async function updateBirthdayReminder() {
+    const panel = document.getElementById('birthdayReminder');
+    const list = document.getElementById('birthdayReminderList');
+    if (!panel || !list) return;
+    const title = document.getElementById('birthdayReminderTitle');
+    const status = document.getElementById('birthdayReminderStatus');
+    const retry = document.getElementById('birthdayReminderRetry');
+    const sequence = ++birthdayReminderSequence;
+    // A tab left open overnight must not call yesterday’s birthdays “today”.
+    if (birthdayReminderDate !== todayInStudio()) {
+        panel.hidden = true; list.replaceChildren(); birthdayReminderSignature = "";
+    }
+    if (retry) retry.disabled = true;
+    try {
+        const data = await fetchJsonOrThrow('/api/compleanni_oggi', { cache: 'no-store' });
+        if (sequence !== birthdayReminderSequence) return;
+        if (!data || data.data !== todayInStudio() || !Array.isArray(data.clienti)
+            || data.clienti.some(person => !person || !['string', 'number'].includes(typeof person.id) || !String(person.id).trim()
+                || (person.nome != null && typeof person.nome !== 'string') || (person.cognome != null && typeof person.cognome !== 'string'))) {
+            throw new Error('Invalid birthday reminder');
+        }
+        const signature = JSON.stringify([data.data, data.clienti]);
+        if (signature !== birthdayReminderSignature) {
+            list.replaceChildren();
+            data.clienti.forEach(person => {
+                const link = document.createElement('a');
+                link.className = 'birthday-client-link';
+                link.href = '/cliente/' + encodeURIComponent(person.id);
+                link.textContent = [person.nome, person.cognome].filter(Boolean).join(' ').trim() || 'Apri scheda cliente';
+                link.setAttribute('aria-label', `Apri scheda di ${link.textContent}`);
+                list.appendChild(link);
+            });
+            birthdayReminderSignature = signature;
+        }
+        birthdayReminderDate = data.data;
+        title.textContent = data.clienti.length === 1 ? 'Oggi è il compleanno di' : 'Oggi festeggiano il compleanno';
+        panel.classList.remove('is-unavailable');
+        panel.hidden = data.clienti.length === 0;
+        if (status) { status.hidden = true; status.textContent = ''; }
+        if (retry) retry.hidden = true;
+    } catch (_) {
+        if (sequence !== birthdayReminderSequence) return;
+        list.replaceChildren(); birthdayReminderSignature = "";
+        title.textContent = 'Promemoria compleanni';
+        panel.classList.add('is-unavailable'); panel.hidden = false;
+        if (status) { status.textContent = 'Compleanni non disponibili in questo momento.'; status.hidden = false; }
+        if (retry) retry.hidden = false;
+    } finally {
+        if (sequence === birthdayReminderSequence && retry) retry.disabled = false;
     }
 }
 
@@ -1118,13 +1179,16 @@ buttonText: {
     inizializzaStatoOccupato();
     updateDailySummary();
     updateNextAppointment();
+    updateBirthdayReminder();
     document.getElementById('nextAppointmentOpen')?.addEventListener('click', openNextAppointment);
     document.getElementById('nextAppointmentRetry')?.addEventListener('click', updateNextAppointment);
+    document.getElementById('birthdayReminderRetry')?.addEventListener('click', updateBirthdayReminder);
     // Refresh as time advances and on returning to the app, independent of calendar filters.
     const refreshOperationalSummary = () => {
         if (document.hidden) return;
         updateNextAppointment();
         updateDailySummary();
+        updateBirthdayReminder();
         updateCalendarWeekSummary();
     };
     const summaryTimer = setInterval(refreshOperationalSummary, 60000);

@@ -1322,3 +1322,267 @@ test('Toast timeout pauses independently for pointer and keyboard focus, but a t
     tick(5200);
     assert.equal(touchToast.isConnected, false);
 });
+
+function birthdayReminderContext() {
+    const { context, nodes } = mainContext();
+    for (const id of ['birthdayReminder', 'birthdayReminderList', 'birthdayReminderTitle', 'birthdayReminderStatus', 'birthdayReminderRetry']) {
+        nodes[id] = new Element();
+    }
+    nodes.birthdayReminder.hidden = true;
+    nodes.birthdayReminderStatus.hidden = true;
+    nodes.birthdayReminderRetry.hidden = true;
+    const state = { today: '2026-10-29', result: { data: '2026-10-29', clienti: [] } };
+    const reads = [];
+    context.todayInStudio = () => state.today;
+    context.fetchJsonOrThrow = async (url, options) => {
+        reads.push({ url, options });
+        assert.equal(url, '/api/compleanni_oggi');
+        assert.equal(options.cache, 'no-store');
+        assert.equal(options.method, undefined, 'Birthday reminders are read-only and never send messages');
+        return typeof state.result === 'function' ? state.result() : state.result;
+    };
+    return { context, nodes, state, reads };
+}
+
+test('Birthday reminder stays hidden for an empty successful response without inventing a client or exposing an error', async () => {
+    const { context, nodes, reads } = birthdayReminderContext();
+    await context.updateBirthdayReminder();
+    assert.equal(nodes.birthdayReminder.hidden, true);
+    assert.equal(nodes.birthdayReminderList.children.length, 0);
+    assert.equal(nodes.birthdayReminder.classes.has('is-unavailable'), false);
+    assert.equal(nodes.birthdayReminderStatus.hidden, true);
+    assert.equal(nodes.birthdayReminderRetry.hidden, true);
+    assert.equal(nodes.birthdayReminderRetry.disabled, false);
+    assert.equal(reads.length, 1);
+});
+
+test('Birthday reminder shows singular and plural literal client links without birth dates or HTML', async () => {
+    const { context, nodes, state } = birthdayReminderContext();
+    state.result = { data: state.today, clienti: [{ id: '../101?x=<script>', nome: '<img src=x onerror=alert(1)>', cognome: 'Test', data_nascita: '1980-10-29' }] };
+    await context.updateBirthdayReminder();
+    assert.equal(nodes.birthdayReminder.hidden, false);
+    assert.equal(nodes.birthdayReminderTitle.textContent, 'Oggi è il compleanno di');
+    const firstLink = nodes.birthdayReminderList.children[0];
+    assert.equal(firstLink.tag, 'a');
+    assert.equal(firstLink.href, '/cliente/' + encodeURIComponent('../101?x=<script>'));
+    assert.equal(firstLink.textContent, '<img src=x onerror=alert(1)> Test');
+    assert.equal(firstLink.innerHTML, '');
+    assert.equal(firstLink.getAttribute('aria-label'), 'Apri scheda di <img src=x onerror=alert(1)> Test');
+    assert.equal(JSON.stringify(firstLink).includes('1980-10-29'), false);
+    assert.deepEqual(firstLink.dataset, {});
+    state.result = { data: state.today, clienti: [{ id: '101', nome: 'Mario', cognome: 'Test' }, { id: 202, nome: '', cognome: '' }] };
+    await context.updateBirthdayReminder();
+    assert.equal(nodes.birthdayReminderTitle.textContent, 'Oggi festeggiano il compleanno');
+    assert.deepEqual(nodes.birthdayReminderList.children.map(link => link.textContent), ['Mario Test', 'Apri scheda cliente']);
+    assert.equal(nodes.birthdayReminderList.children[1].href, '/cliente/202');
+});
+
+test('An unchanged birthday result preserves the actual link elements and their keyboard focus', async () => {
+    const { context, nodes, state } = birthdayReminderContext();
+    state.result = { data: state.today, clienti: [{ id: '101', nome: 'Mario', cognome: 'Test' }] };
+    await context.updateBirthdayReminder();
+    const link = nodes.birthdayReminderList.children[0];
+    link.focus();
+    await context.updateBirthdayReminder();
+    assert.equal(nodes.birthdayReminderList.children[0], link);
+    assert.equal(link.focused, true);
+});
+
+test('Late birthday successes and failures cannot overwrite a newer successful reminder', async () => {
+    const { context, nodes, state } = birthdayReminderContext();
+    const old = popupDeferred();
+    state.result = () => old.promise;
+    const pending = context.updateBirthdayReminder();
+    state.result = { data: state.today, clienti: [{ id: '202', nome: 'Nuovo', cognome: 'Cliente' }] };
+    await context.updateBirthdayReminder();
+    const currentLink = nodes.birthdayReminderList.children[0];
+    old.resolve({ data: state.today, clienti: [{ id: '101', nome: 'Vecchio', cognome: 'Cliente' }] });
+    await pending;
+    assert.equal(nodes.birthdayReminderList.children[0], currentLink);
+    let rejectOld;
+    state.result = () => new Promise((_, reject) => { rejectOld = reject; });
+    const failing = context.updateBirthdayReminder();
+    state.result = { data: state.today, clienti: [{ id: '303', nome: 'Ultimo', cognome: 'Cliente' }] };
+    await context.updateBirthdayReminder();
+    rejectOld(new Error('Errore della richiesta superata'));
+    await failing;
+    assert.equal(nodes.birthdayReminderList.children[0].textContent, 'Ultimo Cliente');
+    assert.equal(nodes.birthdayReminder.classes.has('is-unavailable'), false);
+    assert.equal(nodes.birthdayReminderRetry.hidden, true);
+});
+
+test('Birthday failure clears old clients, offers retry and recovers without exposing private error details', async () => {
+    const { context, nodes, state } = birthdayReminderContext();
+    state.result = { data: state.today, clienti: [{ id: '101', nome: 'Mario', cognome: 'Test' }] };
+    await context.updateBirthdayReminder();
+    state.result = () => { throw new Error('private database details'); };
+    await context.updateBirthdayReminder();
+    assert.equal(nodes.birthdayReminder.hidden, false);
+    assert.equal(nodes.birthdayReminderList.children.length, 0);
+    assert.equal(nodes.birthdayReminder.classes.has('is-unavailable'), true);
+    assert.equal(nodes.birthdayReminderTitle.textContent, 'Promemoria compleanni');
+    assert.equal(nodes.birthdayReminderStatus.hidden, false);
+    assert.doesNotMatch(nodes.birthdayReminderStatus.textContent, /private database/);
+    assert.equal(nodes.birthdayReminderRetry.hidden, false);
+    assert.equal(nodes.birthdayReminderRetry.disabled, false);
+    state.result = { data: state.today, clienti: [{ id: '202', nome: 'Anna', cognome: 'Test' }] };
+    await context.updateBirthdayReminder();
+    assert.equal(nodes.birthdayReminderList.children[0].textContent, 'Anna Test');
+    assert.equal(nodes.birthdayReminder.classes.has('is-unavailable'), false);
+    assert.equal(nodes.birthdayReminderStatus.hidden, true);
+    assert.equal(nodes.birthdayReminderStatus.textContent, '');
+    assert.equal(nodes.birthdayReminderRetry.hidden, true);
+});
+
+test('Malformed birthday responses produce an explicit retryable unavailable state rather than an empty successful result', async () => {
+    for (const result of [null, {}, { data: 'not-a-date', clienti: [] }, { data: '2026-10-29', clienti: {} },
+        { data: '2026-10-29', clienti: [null] }, { data: '2026-10-29', clienti: [{ id: '' }] },
+        { data: '2026-10-29', clienti: [{ id: '101', nome: 123 }] },
+        { data: '2026-10-29', clienti: [{ id: '101', cognome: [] }] }]) {
+        const { context, nodes, state } = birthdayReminderContext();
+        state.result = result;
+        await context.updateBirthdayReminder();
+        assert.equal(nodes.birthdayReminder.hidden, false);
+        assert.equal(nodes.birthdayReminder.classes.has('is-unavailable'), true);
+        assert.equal(nodes.birthdayReminderList.children.length, 0);
+        assert.equal(nodes.birthdayReminderRetry.hidden, false);
+    }
+});
+
+test('A tab left open past Rome midnight clears yesterday’s birthdays before the next network response', async () => {
+    const { context, nodes, state } = birthdayReminderContext();
+    state.result = { data: state.today, clienti: [{ id: '101', nome: 'Ieri', cognome: 'Cliente' }] };
+    await context.updateBirthdayReminder();
+    assert.equal(nodes.birthdayReminder.hidden, false);
+    const next = popupDeferred();
+    state.today = '2026-10-30';
+    state.result = () => next.promise;
+    const pending = context.updateBirthdayReminder();
+    assert.equal(nodes.birthdayReminder.hidden, true);
+    assert.equal(nodes.birthdayReminderList.children.length, 0);
+    assert.equal(nodes.birthdayReminderRetry.disabled, true);
+    next.resolve({ data: state.today, clienti: [{ id: '202', nome: 'Oggi', cognome: 'Cliente' }] });
+    await pending;
+    assert.equal(nodes.birthdayReminder.hidden, false);
+    assert.equal(nodes.birthdayReminderList.children[0].textContent, 'Oggi Cliente');
+    assert.equal(nodes.birthdayReminderRetry.disabled, false);
+});
+
+test('A birthday response that crosses Rome midnight never labels yesterday’s clients as today and can recover on retry', async () => {
+    const { context, nodes, state } = birthdayReminderContext();
+    const response = popupDeferred();
+    state.result = () => response.promise;
+    const pending = context.updateBirthdayReminder();
+    state.today = '2026-10-30';
+    response.resolve({ data: '2026-10-29', clienti: [{ id: '101', nome: 'Ieri', cognome: 'Cliente' }] });
+    await pending;
+    assert.equal(nodes.birthdayReminderList.children.length, 0);
+    assert.equal(nodes.birthdayReminder.classes.has('is-unavailable'), true);
+    assert.equal(nodes.birthdayReminderTitle.textContent, 'Promemoria compleanni');
+    assert.equal(nodes.birthdayReminderRetry.hidden, false);
+    assert.equal(nodes.birthdayReminderRetry.disabled, false);
+    state.result = { data: state.today, clienti: [{ id: '202', nome: 'Oggi', cognome: 'Cliente' }] };
+    await context.updateBirthdayReminder();
+    assert.equal(nodes.birthdayReminder.classes.has('is-unavailable'), false);
+    assert.equal(nodes.birthdayReminderList.children[0].textContent, 'Oggi Cliente');
+    assert.equal(nodes.birthdayReminderRetry.hidden, true);
+});
+
+test('The studio date follows Europe/Rome midnight in both summer and winter rather than UTC', () => {
+    const { context } = mainContext();
+    for (const [instant, expected] of [['2026-07-01T22:15:00Z', '2026-07-02'], ['2026-12-31T23:15:00Z', '2027-01-01'],
+        ['2026-10-25T23:15:00Z', '2026-10-26']]) {
+        context.Date = class extends Date { constructor(...args) { super(...(args.length ? args : [instant])); } };
+        assert.equal(context.todayInStudio(), expected);
+    }
+});
+
+function clientProfileEditContext() {
+    const ids = ['modNome', 'modCognome', 'modTelefono', 'modEmail', 'modDataNascita', 'profileEditSave', 'profileEditStatus'];
+    const nodes = Object.fromEntries(ids.map(id => [id, new Element(id === 'profileEditSave' ? 'button' : 'input')]));
+    nodes.modNome.value = 'Mario'; nodes.modCognome.value = 'Test'; nodes.modTelefono.value = '3331111111'; nodes.modEmail.value = 'mario@example.com';
+    nodes.profileEditStatus.hidden = true;
+    const state = { valid: true, validityChecks: 0, reloads: 0, response: { ok: true, json: async () => ({ success: true }) } };
+    nodes.modDataNascita.reportValidity = () => { state.validityChecks++; return state.valid; };
+    const requests = [];
+    const context = vm.createContext({
+        document: { getElementById: id => nodes[id] || null, querySelectorAll: () => [] },
+        window: { confirm: () => false }, location: { reload() { state.reloads++; } },
+        fetch: async (url, options) => {
+            requests.push({ url, method: options.method, body: JSON.parse(options.body) });
+            return typeof state.response === 'function' ? state.response() : state.response;
+        },
+    });
+    const script = fs.readFileSync(path.join(root, 'templates/cliente_dettaglio.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
+    vm.runInContext(script, context);
+    return { context, nodes, state, requests };
+}
+
+test('Profile edit sends the optional birth date with the existing details and reloads only after a successful save', async () => {
+    const { context, nodes, state, requests } = clientProfileEditContext();
+    nodes.modDataNascita.value = '1980-10-29';
+    await context.salvaModificaCliente('101/a');
+    assert.deepEqual(requests, [{ url: '/api/clienti/101%2Fa', method: 'PUT', body: {
+        nome: 'Mario', cognome: 'Test', telefono: '3331111111', email: 'mario@example.com', data_nascita: '1980-10-29',
+    } }]);
+    assert.equal(state.validityChecks, 1);
+    assert.equal(state.reloads, 1);
+    assert.equal(nodes.profileEditStatus.hidden, true);
+    assert.equal(nodes.profileEditSave.disabled, false);
+    nodes.modDataNascita.value = '';
+    await context.salvaModificaCliente('101');
+    assert.equal(requests[1].body.data_nascita, null, 'Empty optional birth dates must be cleared rather than sent as an invalid empty date');
+    assert.equal(state.reloads, 2);
+});
+
+test('Invalid browser birth-date validity blocks profile writes and already-disabled saves short-circuit validation', async () => {
+    const { context, nodes, state, requests } = clientProfileEditContext();
+    state.valid = false;
+    await context.salvaModificaCliente('101');
+    assert.equal(state.validityChecks, 1);
+    assert.equal(requests.length, 0);
+    assert.equal(state.reloads, 0);
+    nodes.profileEditSave.disabled = true;
+    await context.salvaModificaCliente('101');
+    assert.equal(state.validityChecks, 1);
+    assert.equal(requests.length, 0);
+});
+
+test('Pending profile edits cannot be submitted twice and server errors keep literal inline feedback without reloading', async () => {
+    const { context, nodes, state, requests } = clientProfileEditContext();
+    const response = popupDeferred();
+    state.response = () => response.promise;
+    nodes.profileEditStatus.hidden = false;
+    nodes.profileEditStatus.textContent = 'Vecchio errore';
+    const pending = context.salvaModificaCliente('101');
+    assert.equal(nodes.profileEditSave.disabled, true);
+    assert.equal(nodes.profileEditStatus.hidden, true);
+    await context.salvaModificaCliente('101');
+    assert.equal(requests.length, 1);
+    const error = '<b>Data di nascita non valida</b>';
+    response.resolve({ ok: false, json: async () => ({ error }) });
+    await pending;
+    assert.equal(state.reloads, 0);
+    assert.equal(nodes.profileEditSave.disabled, false);
+    assert.equal(nodes.profileEditStatus.hidden, false);
+    assert.equal(nodes.profileEditStatus.textContent, error);
+    assert.equal(nodes.profileEditStatus.innerHTML, '');
+    state.response = { ok: true, json: async () => ({ success: true }) };
+    await context.salvaModificaCliente('101');
+    assert.equal(state.reloads, 1);
+    assert.equal(nodes.profileEditStatus.hidden, true);
+});
+
+test('Network and non-JSON profile-save failures leave the profile editable without a false success reload', async () => {
+    for (const response of [() => { throw new Error('Connessione non riuscita'); },
+        { ok: false, json: async () => { throw new Error('Risposta non JSON'); } },
+        { ok: false, json: async () => ({}) }]) {
+        const { context, nodes, state } = clientProfileEditContext();
+        state.response = response;
+        await context.salvaModificaCliente('101');
+        assert.equal(state.reloads, 0);
+        assert.equal(nodes.profileEditSave.disabled, false);
+        assert.equal(nodes.profileEditStatus.hidden, false);
+        assert.ok(nodes.profileEditStatus.textContent.length > 0);
+    }
+});

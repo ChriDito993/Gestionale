@@ -97,6 +97,18 @@
     </section>
     <p class="studio-hours">Orari studio <span>09:15–13:30</span><span aria-hidden="true">·</span><span>15:00–20:00</span></p>
 
+    <section id="birthdayReminder" class="birthday-reminder" aria-labelledby="birthdayReminderTitle" aria-live="polite" hidden>
+        <span class="birthday-reminder-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11h16v9H4zM3 7h18v4H3zM12 7v13"/><path d="M12 7H8a2.5 2.5 0 1 1 2.4-3.2L12 7Zm0 0h4a2.5 2.5 0 1 0-2.4-3.2L12 7Z"/></svg>
+        </span>
+        <div class="birthday-reminder-copy">
+            <p id="birthdayReminderTitle" class="birthday-reminder-title">Compleanni di oggi</p>
+            <div id="birthdayReminderList" class="birthday-reminder-list"></div>
+            <p id="birthdayReminderStatus" class="birthday-reminder-status" hidden></p>
+        </div>
+        <button type="button" id="birthdayReminderRetry" class="birthday-reminder-retry" hidden>Riprova</button>
+    </section>
+
     <!-- FILTRI RAPIDI CALENDARIO -->
     <div class="calendar-filters-card">
         <div class="calendar-filters-header">

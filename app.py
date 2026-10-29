@@ -10,7 +10,7 @@ from package_accounting import PackageAccountingError, package_operation
 from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for, g, has_request_context
 from supabase import create_client
 from dotenv import load_dotenv
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 from calendar import monthrange
 from functools import wraps
@@ -810,10 +810,33 @@ def crea_cliente():
     return jsonify(response.data)
 
 # PUT route per aggiornare dati anagrafici di un cliente
+def validate_client_birth_date(value):
+    """Optional profile date, never a timestamp or a date in the future."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
+        raise ValueError("Inserisci una data di nascita valida")
+    try:
+        born = date.fromisoformat(value.strip())
+    except ValueError:
+        raise ValueError("Inserisci una data di nascita valida") from None
+    if born > studio_now().date():
+        raise ValueError("La data di nascita non può essere futura")
+    return born.isoformat()
+
+
 @app.route("/api/clienti/<cliente_id>", methods=["PUT"])
 @login_required
 def aggiorna_cliente(cliente_id):
-    data = request.json
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Dati anagrafici non validi"}), 400
+
+    if "data_nascita" in data:
+        try:
+            data["data_nascita"] = validate_client_birth_date(data["data_nascita"])
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
 
     telefono = data.get("telefono")
 
@@ -833,6 +856,9 @@ def aggiorna_cliente(cliente_id):
 
     # Rimuoviamo eventuali None
     campi_aggiornabili = {k: v for k, v in campi_aggiornabili.items() if v is not None}
+    # Omitted dates stay unchanged; an explicit empty date clears only this field.
+    if "data_nascita" in data:
+        campi_aggiornabili["data_nascita"] = data["data_nascita"]
 
     response = supabase.table("clienti") \
         .update(campi_aggiornabili) \
@@ -933,6 +959,40 @@ def calendar_event(appo):
 def studio_now():
     """Appointment timestamps are stored as Rome wall-clock times, including on Render."""
     return datetime.now(ZoneInfo("Europe/Rome")).replace(tzinfo=None)
+
+
+@app.route("/api/compleanni_oggi", methods=["GET"])
+@login_required
+def compleanni_oggi():
+    today = studio_now().date()
+    birthdays = []
+    page_size = 1000
+    offset = 0
+    try:
+        while True:
+            rows = supabase.table("clienti").select("id,nome,cognome,data_nascita") \
+                .order("id").range(offset, offset + page_size - 1).execute().data
+            if not isinstance(rows, list):
+                raise ValueError("Missing birthdays response")
+            for client in rows:
+                try:
+                    # Postgres DATE values are ISO dates, independent of the birth year.
+                    born = date.fromisoformat(client.get("data_nascita") or "")
+                except (TypeError, ValueError):
+                    continue
+                if born <= today and (born.month, born.day) == (today.month, today.day):
+                    birthdays.append({key: client.get(key) for key in ("id", "nome", "cognome")})
+            if len(rows) < page_size:
+                break
+            offset += page_size
+        birthdays.sort(key=lambda person: (str(person.get("cognome") or "").casefold(), str(person.get("nome") or "").casefold(), str(person["id"])))
+        result = jsonify({"data": today.isoformat(), "clienti": birthdays})
+    except Exception:
+        app.logger.exception("Errore lettura compleanni del giorno")
+        result = jsonify({"error": "Impossibile caricare i compleanni. Riprova tra poco."})
+        result.status_code = 503
+    result.headers["Cache-Control"] = "no-store"
+    return result
 
 
 def counted_studio_appointment(row):
@@ -1846,6 +1906,7 @@ def dettaglio_cliente(cliente_id):
     return render_template(
         "cliente_dettaglio.html",
         cliente=cliente,
+        data_oggi_studio=studio_now().date().isoformat(),
         appuntamenti=appuntamenti,
         tipi_pacchetto=tipi_pacchetto,
         pacchetti_cliente=pacchetti_cliente,

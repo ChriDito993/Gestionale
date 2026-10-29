@@ -35,9 +35,11 @@ class FakeQuery:
         self._limit = None
         self._range = None
         self._orders = []
+        self._columns = None
 
     def select(self, _columns):
         self.operation = "select"
+        self._columns = _columns
         return self
 
     def insert(self, payload):
@@ -101,6 +103,7 @@ class FakeQuery:
                 "operation": self.operation,
                 "payload": self.payload,
                 "filters": list(self.filters),
+                "columns": self._columns,
             }
         )
 
@@ -231,6 +234,10 @@ class FakeQuery:
             return FakeResponse([])
 
         rows = self._filter_rows(list(rows_by_id.values()))
+        for column in reversed(self._orders):
+            rows = sorted(rows, key=lambda row: str(row.get(column) or ""))
+        if self._range is not None:
+            rows = rows[self._range[0]:self._range[1] + 1]
         if self._limit is not None:
             rows = rows[: self._limit]
         if self._single:
@@ -1442,6 +1449,126 @@ def test_daily_total_does_not_stop_at_supabase_page_limit(authed_client, monkeyp
     assert client.get('/api/appuntamenti_oggi').get_json()['totale'] == 1001
 
 
+def test_birthday_reminder_requires_login(unauth_client):
+    response = unauth_client.get('/api/compleanni_oggi')
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/login')
+
+
+def test_birthday_reminder_uses_rome_today_and_returns_only_sorted_names(authed_client, monkeypatch):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 29, 0, 5))
+    db.clienti = {
+        '101': {'id': '101', 'nome': 'Mario', 'cognome': 'Rossi', 'data_nascita': '1985-10-29',
+                'email': 'private@example.test', 'telefono': 'private-phone', 'note': 'private-note'},
+        '102': {'id': '102', 'nome': 'Anna', 'cognome': 'Bianchi', 'data_nascita': '1999-10-29'},
+        '103': {'id': '103', 'nome': 'Alberto', 'cognome': 'Bianchi', 'data_nascita': '1970-10-29'},
+        '104': {'id': '104', 'nome': 'Altro', 'cognome': 'Giorno', 'data_nascita': '1985-10-28'},
+        '105': {'id': '105', 'nome': 'Altro', 'cognome': 'Mese', 'data_nascita': '1985-09-29'},
+        '106': {'id': '106', 'nome': 'Senza', 'cognome': 'Data', 'data_nascita': None},
+        '107': {'id': '107', 'nome': 'Non', 'cognome': 'Nato', 'data_nascita': '2030-10-29'},
+        '108': {'id': '108', 'nome': 'Data', 'cognome': 'Errata', 'data_nascita': 'not-a-date'},
+        '109': {'id': '109', 'nome': 'Data', 'cognome': 'Impossibile', 'data_nascita': '2000-02-30'},
+    }
+    previous = json.loads(json.dumps(db.clienti))
+    response = client.get('/api/compleanni_oggi')
+    assert response.status_code == 200
+    assert response.get_json() == {'data': '2026-10-29', 'clienti': [
+        {'id': '103', 'nome': 'Alberto', 'cognome': 'Bianchi'},
+        {'id': '102', 'nome': 'Anna', 'cognome': 'Bianchi'},
+        {'id': '101', 'nome': 'Mario', 'cognome': 'Rossi'},
+    ]}
+    assert response.headers['Cache-Control'] == 'no-store'
+    assert db.clienti == previous
+    assert db.appuntamenti == {} and db.appuntamenti_clienti == []
+    assert all(call['table'] == 'clienti' and call['operation'] == 'select' for call in db.calls)
+    assert all(set(call['columns'].split(',')) == {'id', 'nome', 'cognome', 'data_nascita'} for call in db.calls)
+    body = response.get_data(as_text=True)
+    for private in ('data_nascita', '1985', 'email', 'telefono', 'private-phone', 'private-note'):
+        assert private not in body
+
+
+@pytest.mark.parametrize('today, expected', [
+    (datetime(2027, 2, 28, 10), []),
+    (datetime(2027, 3, 1, 10), []),
+    (datetime(2028, 2, 29, 10), [{'id': '101', 'nome': 'Anna', 'cognome': 'Test'}]),
+])
+def test_birthday_reminder_keeps_leap_day_on_actual_february_29(authed_client, monkeypatch, today, expected):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: today)
+    db.clienti['101'] = {'id': '101', 'nome': 'Anna', 'cognome': 'Test', 'data_nascita': '2000-02-29'}
+    assert client.get('/api/compleanni_oggi').get_json() == {'data': today.date().isoformat(), 'clienti': expected}
+
+
+def test_birthday_reminder_handles_empty_registry_without_fake_names(authed_client, monkeypatch):
+    client, _db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 29, 10))
+    response = client.get('/api/compleanni_oggi')
+    assert response.status_code == 200
+    assert response.get_json() == {'data': '2026-10-29', 'clienti': []}
+    assert response.headers['Cache-Control'] == 'no-store'
+
+
+def test_birthday_reminder_does_not_stop_at_supabase_page_limit(authed_client, monkeypatch):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 29, 10))
+    db.clienti = {str(i): {'id': str(i), 'nome': 'Altro', 'cognome': 'Cliente', 'data_nascita': '1980-01-01'}
+                  for i in range(1000, 2000)}
+    db.clienti['2000'] = {'id': '2000', 'nome': 'Ultimo', 'cognome': 'Test', 'data_nascita': '1980-10-29'}
+    response = client.get('/api/compleanni_oggi')
+    assert response.status_code == 200
+    assert response.get_json()['clienti'] == [{'id': '2000', 'nome': 'Ultimo', 'cognome': 'Test'}]
+    assert len(db.calls) == 2
+
+
+def test_birthday_reminder_reloads_names_after_rome_midnight(authed_client, monkeypatch):
+    client, db = authed_client
+    db.clienti = {
+        '101': {'id': '101', 'nome': 'Oggi', 'cognome': 'Test', 'data_nascita': '1980-10-29'},
+        '102': {'id': '102', 'nome': 'Domani', 'cognome': 'Test', 'data_nascita': '1980-10-30'},
+    }
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 29, 23, 59))
+    assert client.get('/api/compleanni_oggi').get_json()['clienti'][0]['id'] == '101'
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 30, 0, 1))
+    assert client.get('/api/compleanni_oggi').get_json() == {
+        'data': '2026-10-30', 'clienti': [{'id': '102', 'nome': 'Domani', 'cognome': 'Test'}]}
+    assert all(call['operation'] == 'select' for call in db.calls)
+
+
+@pytest.mark.parametrize('missing_response', [False, True])
+def test_birthday_read_failure_is_sanitized_and_never_an_empty_success(authed_client, monkeypatch, missing_response):
+    client, _db = authed_client
+    def fail(_query):
+        if missing_response:
+            return FakeResponse(None)
+        raise RuntimeError('private-provider-details')
+    monkeypatch.setattr(FakeQuery, 'execute', fail)
+    response = client.get('/api/compleanni_oggi')
+    assert response.status_code == 503
+    assert 'error' in response.get_json()
+    assert 'clienti' not in response.get_json()
+    assert response.headers['Cache-Control'] == 'no-store'
+    assert 'private-provider-details' not in response.get_data(as_text=True)
+
+
+def test_birthday_second_page_failure_does_not_expose_incomplete_results(authed_client, monkeypatch):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 29, 10))
+    db.clienti = {str(i): {'id': str(i), 'nome': 'Compleanno', 'cognome': 'Test', 'data_nascita': '1980-10-29'}
+                  for i in range(1000, 2001)}
+    original_execute = FakeQuery.execute
+    def fail_second_page(query):
+        if query._range is not None and query._range[0] >= 1000:
+            raise RuntimeError('private-page-error')
+        return original_execute(query)
+    monkeypatch.setattr(FakeQuery, 'execute', fail_second_page)
+    response = client.get('/api/compleanni_oggi')
+    assert response.status_code == 503
+    assert 'clienti' not in response.get_json()
+    assert 'private-page-error' not in response.get_data(as_text=True)
+    assert all(call['operation'] == 'select' for call in db.calls)
+
+
 def test_studio_clock_explicitly_uses_rome_instead_of_render_host_timezone(monkeypatch):
     class StudioClock:
         @staticmethod
@@ -1722,6 +1849,63 @@ def test_hidden_payments_page_is_still_available(authed_client, monkeypatch):
     response = client.get("/pagamenti")
     assert response.status_code == 200
     assert b"Resoconto Pagamenti" in response.data
+
+
+def test_profile_birth_date_update_requires_login(unauth_client):
+    response = unauth_client.put('/api/clienti/101', json={'data_nascita': '1980-10-29'})
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/login')
+
+
+@pytest.mark.parametrize('birth_date', ['1980-10-29', '2000-02-29', '2026-10-29'])
+def test_profile_birth_date_can_be_saved_without_changing_other_fields(authed_client, monkeypatch, birth_date):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 29, 10))
+    db.clienti['101'] = {'id': '101', 'nome': 'Mario', 'cognome': 'Rossi', 'email': 'mario@example.test',
+                         'telefono': '393331111111', 'data_nascita': None}
+    before = dict(db.clienti['101'])
+    response = client.put('/api/clienti/101', json={'data_nascita': birth_date})
+    assert response.status_code == 200
+    assert db.clienti['101'] == {**before, 'data_nascita': birth_date}
+    assert db.appuntamenti == {} and db.appuntamenti_clienti == []
+    assert all(call['table'] == 'clienti' and call['operation'] == 'update' for call in db.calls)
+
+
+@pytest.mark.parametrize('empty_date', [None, ''])
+def test_profile_birth_date_can_be_removed_explicitly(authed_client, empty_date):
+    client, db = authed_client
+    db.clienti['101'] = {'id': '101', 'nome': 'Mario', 'data_nascita': '1980-10-29'}
+    response = client.put('/api/clienti/101', json={'data_nascita': empty_date})
+    assert response.status_code == 200
+    assert db.clienti['101']['data_nascita'] is None
+    assert db.clienti['101']['nome'] == 'Mario'
+
+
+def test_profile_birth_date_is_preserved_when_omitted_by_existing_editors(authed_client):
+    client, db = authed_client
+    db.clienti['101'] = {'id': '101', 'nome': 'Mario', 'data_nascita': '1980-10-29'}
+    response = client.put('/api/clienti/101', json={'nome': 'Marco'})
+    assert response.status_code == 200
+    assert db.clienti['101']['nome'] == 'Marco'
+    assert db.clienti['101']['data_nascita'] == '1980-10-29'
+    assert 'data_nascita' not in db.calls[0]['payload']
+
+
+@pytest.mark.parametrize('birth_date', [
+    '2026-10-30', '2030-10-29', '2001-02-29', '2000-02-30', '1980-13-01',
+    '29/10/1980', '19801029', '1980-1-1', '1980-10-29T00:00:00', '   ',
+    19801029, False, [], {},
+])
+def test_profile_rejects_invalid_or_future_birth_date_before_any_write(authed_client, monkeypatch, birth_date):
+    client, db = authed_client
+    monkeypatch.setattr(app_module, 'studio_now', lambda: datetime(2026, 10, 29, 10))
+    before = {'id': '101', 'nome': 'Mario', 'data_nascita': '1980-10-29'}
+    db.clienti['101'] = dict(before)
+    response = client.put('/api/clienti/101', json={'data_nascita': birth_date, 'nome': 'Non aggiornare'})
+    assert response.status_code == 400
+    assert 'error' in response.get_json()
+    assert db.clienti['101'] == before
+    assert db.calls == []
 
 
 @pytest.mark.parametrize("previous", [None, "", "   "])
