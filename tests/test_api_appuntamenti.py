@@ -343,6 +343,8 @@ def authed_client(monkeypatch):
     with app_module.app.test_client() as client:
         with client.session_transaction() as session:
             session["logged_in"] = True
+            session["csrf_token"] = "workflow-test-token"
+        client.environ_base["HTTP_X_CSRF_TOKEN"] = "workflow-test-token"
         yield client, fake_supabase
 
 
@@ -816,7 +818,7 @@ def test_manual_reminder_returns_safe_email_error(authed_client, monkeypatch):
     monkeypatch.setattr(app_module, "invia_email_dettagliata", lambda *args, **kwargs: {
         "success": False, "error_code": "authentication_failed", "message": "Autenticazione non riuscita",
     })
-    response = client.get("/invia_promemoria/1")
+    response = client.post("/invia_promemoria/1")
     assert response.status_code == 500
     assert response.get_json() == {
         "status": "error", "error_code": "authentication_failed", "message": "Autenticazione non riuscita",
@@ -1306,10 +1308,11 @@ def test_dashboard_header_preserves_navigation_and_optional_payments(show_paymen
     parser = HeaderParser()
     parser.feed(html)
     assert "/clienti" in parser.links
-    assert "/logout" in parser.links
+    assert 'action="/logout"' in html
+    assert 'name="csrf_token"' in html
     assert ("/pagamenti" in parser.links) is show_payments
     assert ("header-has-payments" in parser.nav_class) is show_payments
-    assert len(parser.buttons) == 1
+    assert len(parser.buttons) == 2
     assert parser.buttons[0]["onclick"] == "apriModalCliente()"
     assert parser.buttons[0]["type"] == "button"
     assert 'class="header-subline"' in html

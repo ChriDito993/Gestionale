@@ -57,17 +57,26 @@ possono condividere il limite: verificare la topologia Render prima di introdurr
 fiducia negli header del proxy. Per più istanze occorre un archivio condiviso
 come Redis o un limite gestito dal proxy: SQLite locale non coordina host diversi.
 
-Il token CSRF introdotto qui protegge il login. Le altre operazioni del gestionale
-richiedono un intervento separato per introdurre token in tutti i form e nelle
-richieste JavaScript. SameSite=Lax è una difesa aggiuntiva, non un sostituto.
-La rotta GET che invia promemoria rimane da convertire a POST in quell'intervento.
+Tutte le richieste autenticate POST/PUT/PATCH/DELETE richiedono ora il token
+CSRF della sessione: campo nascosto nei form o header X-CSRF-Token nel JavaScript.
+Il controllo è globale e precede le operazioni sul database e l'invio delle email.
+Il login conserva il suo token separato. Un errore CSRF restituisce HTTP 400 con
+un messaggio che invita a ricaricare la pagina; non esegue né ritenta l'operazione.
+
+Logout e invio promemoria accettano soltanto POST; GET restituisce HTTP 405.
+Il file csrf.js aggiunge il token alle mutazioni fetch solo verso la stessa origine,
+preservando corpo, header e opzioni. Ogni pagina operativa include token e script.
+I form tradizionali contengono il token anche se JavaScript è disattivato.
+Dopo il deploy ricaricare le pagine già aperte prima di effettuare modifiche.
+Non occorrono nuove variabili Render o migrazioni del database.
+
 Non sono stati introdotti MFA, recupero password o utenti multipli.
 
 ## Verifiche
 
 ```sh
 python3 -m pytest -q --disable-warnings
-node --test tests/test_workflow_frontend.js
+node --test tests/test_workflow_frontend.js tests/test_csrf_frontend.js
 ```
 
 I test includono token mancanti, falsificati e di un altro browser, credenziali

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    {% include "_csrf.html" %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MASSOTERAPIA & PT di Christian Di Tommaso</title>
@@ -54,12 +55,12 @@
                 </svg>
                 Nuovo cliente
             </button>
-            <a href="/logout" class="header-logout" aria-label="Esci dal gestionale" title="Esci dal gestionale">
+            <form method="POST" action="/logout" class="logout-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="header-logout" aria-label="Esci dal gestionale" title="Esci dal gestionale">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M14 8l4 4-4 4M8 12h10"/>
                 </svg>
                 <span class="header-logout-label">Esci</span>
-            </a>
+            </button></form>
         </nav>
 
     </header>

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    {% include "_csrf.html" %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MASSOTERAPIA & PT di Christian Di Tommaso</title>
@@ -75,6 +76,7 @@
         <section class="detail-card">
             <h3>Note cliniche</h3>
             <form method="POST" action="/cliente/{{ cliente.id }}/note" class="profile-notes-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label for="profileClinicalNotes" class="sr-only">Note cliniche del cliente</label>
                 <textarea id="profileClinicalNotes" name="note_cliniche" rows="6" placeholder="Annotazioni sul percorso del cliente...">{{ cliente.note_cliniche or "" }}</textarea>
                 <button class="btn-primary" type="submit">Salva note</button>
@@ -163,6 +165,7 @@
         <h3>Assegna un nuovo pacchetto</h3>
 
         <form method="POST" action="/assegna_pacchetto" class="package-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="cliente_id" value="{{ cliente.id }}">
 
             <label for="profilePackageType" class="sr-only">Tipo di pacchetto da assegnare</label>
@@ -213,6 +216,7 @@
                 </div>
 
                 <form method="POST" action="/chiudi_pacchetto/{{ pac.id }}" class="pacchetto-close-form" data-pacchetto="{{ tipo_pacchetto.nome or 'Pacchetto' }}" onsubmit="return confermaChiusuraPacchetto(this)">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn-danger-soft">Chiudi Pacchetto</button>
                 </form>
             </li>
@@ -269,6 +273,7 @@
                     </a>
 
                     <form method="POST" action="/update_stato" class="cliente-app-actions">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="appuntamento_id" value="{{ app.id }}">
 
                         <select name="stato" class="input-apple status-select">

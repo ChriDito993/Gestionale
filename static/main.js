@@ -2374,7 +2374,7 @@ function inviaPromemoria() {
         return;
     }
 
-    fetch('/invia_promemoria/' + window.eventoSelezionato.id)
+    fetch('/invia_promemoria/' + encodeURIComponent(window.eventoSelezionato.id), { method: 'POST' })
         .then(async (response) => {
             const contentType = response.headers.get("content-type");
 

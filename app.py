@@ -141,6 +141,11 @@ init_sentry()
 
 @app.context_processor
 def inject_static_file_helper():
+    def csrf_token():
+        if "csrf_token" not in session:
+            session["csrf_token"] = secrets.token_urlsafe(32)
+        return session["csrf_token"]
+
     def static_file(filename):
         file_path = os.path.join(app.static_folder, filename)
         try:
@@ -149,7 +154,7 @@ def inject_static_file_helper():
             version = 0
         return url_for("static", filename=filename, v=version)
 
-    return {"static_file": static_file, "show_payments": app.config["SHOW_PAYMENTS"]}
+    return {"static_file": static_file, "show_payments": app.config["SHOW_PAYMENTS"], "csrf_token": csrf_token}
 
 # ===============================
 # SIMPLE DASHBOARD CACHE
@@ -674,6 +679,19 @@ def attach_request_id():
     g.request_id = incoming_request_id[:64] if incoming_request_id else uuid.uuid4().hex[:12]
 
 
+@app.before_request
+def protect_authenticated_mutations():
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"} or not session.get("logged_in") or request.endpoint == "login":
+        return None
+    expected = session.get("csrf_token")
+    supplied = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token", "")
+    if not expected or not secrets.compare_digest(supplied.encode(), expected.encode()):
+        message = "Sessione del modulo scaduta. Ricarica la pagina e riprova."
+        if request.path.startswith("/api/") or request.is_json or request.path.startswith("/invia_promemoria/"):
+            return jsonify({"error": message, "message": message}), 400
+        return render_template_string('<h3>Operazione non eseguita</h3><p>{{ message }}</p><a href="/">Torna al gestionale</a>', message=message), 400
+
+
 @app.after_request
 def add_request_id_header(response):
     if session.get("logged_in") or request.endpoint == "login":
@@ -779,7 +797,7 @@ def login():
         session["login_csrf"] = secrets.token_urlsafe(32)
     if request.method == "POST":
         token = request.form.get("csrf_token", "")
-        if not secrets.compare_digest(token, session["login_csrf"]):
+        if not secrets.compare_digest(token.encode(), session["login_csrf"].encode()):
             error = "Sessione di accesso scaduta. Riprova dal modulo qui sotto."
             status = 400
         else:
@@ -803,7 +821,7 @@ def login():
         response.headers["Retry-After"] = str(retry_after)
     return response
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 @login_required
 def logout():
     session.clear()
@@ -2128,7 +2146,7 @@ def chiudi_pacchetto(pacchetto_id):
 # ===============================
 
 
-@app.route("/invia_promemoria/<appuntamento_id>", methods=["GET"])
+@app.route("/invia_promemoria/<appuntamento_id>", methods=["POST"])
 @login_required
 def invia_promemoria(appuntamento_id):
     # Recupero appuntamento con servizio e clienti
