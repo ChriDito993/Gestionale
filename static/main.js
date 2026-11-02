@@ -426,7 +426,55 @@ function updateCalendarToolbar(info) {
     }
 }
 
+let calendarGestureBusy = false;
+
+function initializeCalendarGestures() {
+    const element = document.getElementById('calendar');
+    if (!element || element.calendarWheelInstalled) return;
+    element.calendarWheelInstalled = true;
+    let lastTime = -Infinity;
+    let axis = null;
+    let distance = 0;
+    let navigated = false;
+    const reset = () => { axis = null; distance = 0; navigated = false; };
+    element.addEventListener('wheel', event => {
+        const modalOpen = document.body.classList.contains('app-confirm-open') ||
+            ['eventoModal', 'clienteModal', 'modificaModal', 'pacchettiModal', 'dashboardAppModal']
+                .some(id => document.getElementById(id)?.style.display === 'block');
+        if (!calendar || isMobileViewport() || modalOpen || calendarGestureBusy || event.buttons ||
+            event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.defaultPrevented ||
+            event.target?.closest?.('input, textarea, select, button, [contenteditable="true"]')) {
+            reset();
+            lastTime = event.timeStamp;
+            return;
+        }
+        // Lock the initial direction until the wheel stream, including inertia, stops.
+        if (event.timeStamp - lastTime > 260) reset();
+        lastTime = event.timeStamp;
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientWidth : 1;
+        const x = event.deltaX * unit;
+        const y = event.deltaY * unit;
+        if (!axis) {
+            if (Math.max(Math.abs(x), Math.abs(y)) < 2) return;
+            axis = Math.abs(x) > Math.abs(y) * 1.4 ? 'horizontal' : 'vertical';
+        }
+        if (axis !== 'horizontal') return;
+        // Non-passive only on the agenda: prevent browser back/forward for this gesture.
+        if (event.cancelable) event.preventDefault();
+        else return;
+        if (navigated) return;
+        if (distance && Math.sign(x) !== Math.sign(distance)) distance = 0;
+        distance += x;
+        if (Math.abs(distance) < 80) return;
+        navigated = true;
+        hideCalendarPreview();
+        if (distance > 0) calendar.next();
+        else calendar.prev();
+    }, { passive: false });
+}
+
 function initializeCalendarControls() {
+    initializeCalendarGestures();
     const actions = {
         calendarPrev: () => calendar.prev(), calendarNext: () => calendar.next(), calendarToday: () => calendar.today(),
         calendarViewDay: () => calendar.changeView('timeGridDay'), calendarViewWeek: () => calendar.changeView('timeGridWeek'),
@@ -1115,8 +1163,10 @@ buttonText: {
 
         eventDrop: info => aggiornaOrario(info),
         eventResize: info => aggiornaOrario(info),
-        eventDragStart: hideCalendarPreview,
-        eventResizeStart: hideCalendarPreview,
+        eventDragStart: () => { calendarGestureBusy = true; hideCalendarPreview(); },
+        eventDragStop: () => { calendarGestureBusy = false; },
+        eventResizeStart: () => { calendarGestureBusy = true; hideCalendarPreview(); },
+        eventResizeStop: () => { calendarGestureBusy = false; },
 
         displayEventTime: false,
         eventContent: renderCalendarEvent,

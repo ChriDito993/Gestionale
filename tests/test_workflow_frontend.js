@@ -1586,3 +1586,97 @@ test('Network and non-JSON profile-save failures leave the profile editable with
         assert.ok(nodes.profileEditStatus.textContent.length > 0);
     }
 });
+
+function trackpadContext() {
+    const { context, nodes } = mainContext();
+    const calls = [];
+    nodes.calendar = new Element();
+    nodes.calendar.clientWidth = 1000;
+    let installations = 0;
+    nodes.calendar.addEventListener = (type, handler, options) => {
+        assert.equal(type, 'wheel');
+        assert.equal(options.passive, false);
+        nodes.calendar.listeners[type] = handler;
+        installations++;
+    };
+    context.window.testCalendar = { next: () => calls.push('next'), prev: () => calls.push('prev') };
+    vm.runInContext('calendar = window.testCalendar;', context);
+    context.fetch = () => assert.fail('Navigation must not directly save appointments or send emails');
+    context.initializeCalendarGestures();
+    let time = 0;
+    const wheel = (x, y = 0, extra = {}) => {
+        time += 16;
+        const event = { deltaX: x, deltaY: y, deltaMode: 0, timeStamp: time, cancelable: true,
+            target: { closest: () => null }, preventDefault() { this.prevented = true; }, ...extra };
+        nodes.calendar.listeners.wheel(event);
+        return event;
+    };
+    return { context, nodes, calls, wheel, pause: () => { time += 400; }, installations: () => installations };
+}
+
+test('Trackpad accumulates small horizontal deltas, changes one period and absorbs the entire momentum tail', () => {
+    const b = trackpadContext();
+    for (let i = 0; i < 3; i++) assert.equal(b.wheel(20, 1).prevented, true);
+    assert.deepEqual(b.calls, []);
+    b.wheel(20, 1);
+    for (let i = 0; i < 100; i++) b.wheel(10, 0);
+    assert.deepEqual(b.calls, ['next']);
+    b.pause(); b.wheel(-85, 2);
+    assert.deepEqual(b.calls, ['next', 'prev']);
+});
+
+test('Vertical scroll and diagonal gestures never switch period or prevent native hour scrolling', () => {
+    const b = trackpadContext();
+    assert.equal(b.wheel(3, 60).prevented, undefined);
+    assert.equal(b.wheel(100, 5).prevented, undefined, 'A vertical gesture remains vertical');
+    b.pause();
+    assert.equal(b.wheel(90, 80).prevented, undefined);
+    assert.deepEqual(b.calls, []);
+});
+
+test('Trackpad ignores pinch, modifier keys, form controls and non-cancelable events', () => {
+    const b = trackpadContext();
+    for (const options of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { shiftKey: true },
+        { buttons: 1 }, { defaultPrevented: true }, { cancelable: false }, { target: { closest: () => ({}) } }]) {
+        b.pause();
+        assert.equal(b.wheel(120, 0, options).prevented, undefined);
+    }
+    assert.deepEqual(b.calls, []);
+});
+
+test('Trackpad preserves native mobile week scrolling and never navigates behind open dialogs or a drag', () => {
+    const b = trackpadContext();
+    b.context.window.matchMedia = () => ({ matches: true });
+    assert.equal(b.wheel(120).prevented, undefined);
+    b.context.window.matchMedia = () => ({ matches: false });
+    b.nodes.modificaModal = new Element(); b.nodes.modificaModal.style.display = 'block';
+    b.wheel(120);
+    b.nodes.modificaModal.style.display = 'none';
+    b.context.document.body.classList.add('app-confirm-open');
+    b.wheel(120);
+    b.context.document.body.classList.remove('app-confirm-open');
+    vm.runInContext('calendarGestureBusy = true;', b.context);
+    b.wheel(120);
+    assert.deepEqual(b.calls, []);
+    vm.runInContext('calendarGestureBusy = false;', b.context);
+    b.pause(); b.wheel(120);
+    assert.deepEqual(b.calls, ['next']);
+});
+
+test('Trackpad normalizes line and page deltas and installs a single listener', () => {
+    const b = trackpadContext();
+    b.context.initializeCalendarGestures();
+    assert.equal(b.installations(), 1);
+    b.wheel(5, 0, { deltaMode: 1 });
+    b.pause();
+    b.wheel(-1, 0, { deltaMode: 2 });
+    assert.deepEqual(b.calls, ['next', 'prev']);
+});
+
+test('Small horizontal jitters and direction reversals do not accidentally change dates', () => {
+    const b = trackpadContext();
+    b.wheel(40); b.wheel(-30); b.wheel(30);
+    assert.deepEqual(b.calls, []);
+    b.pause(); b.wheel(50);
+    assert.deepEqual(b.calls, [], 'Separate gestures must not accumulate');
+});

@@ -45,3 +45,26 @@ git diff --check
 
 I test usano dati e invii simulati: non creano prenotazioni reali e non inviano
 email o messaggi. La verifica grafica finale su browser resta da effettuare.
+
+## Navigazione calendario con trackpad
+
+Su desktop, uno scorrimento prevalentemente orizzontale con due dita sul calendario
+passa al periodo successivo o precedente, come le frecce della barra: una settimana
+nella vista Settimana, un giorno nella vista Giorno. Il verso segue il delta di
+scorrimento configurato dal sistema (scorrimento positivo → periodo successivo).
+
+La soglia di 80 pixel equivalenti e il blocco fino a 260 ms di pausa limitano la
+navigazione a un periodo per gesto, includendo la coda di inerzia. Lo scorrimento
+verticale resta dedicato agli orari. Zoom, tasti modificatori, campi, modali aperte
+e trascinamento/ridimensionamento degli appuntamenti non attivano la navigazione.
+Sotto i 901 px si mantiene lo scorrimento nativo dei giorni nella settimana mobile.
+
+Il codice è lo stesso in locale e su Render; non occorrono variabili o migrazioni.
+Dopo il deploy ricaricare la pagina. La verifica automatica simula eventi wheel:
+il gesto fisico e l'inerzia effettiva vanno provati sul trackpad del Mac.
+
+```sh
+node --test tests/test_workflow_frontend.js tests/test_csrf_frontend.js
+```
+
+Riferimento eventi browser: https://developer.mozilla.org/en-US/docs/Web/API/Element/wheel_event
