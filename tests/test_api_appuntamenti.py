@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "test-key")
 os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("ADMIN_EMAIL", "test@example.com")
+os.environ.setdefault("ADMIN_PASSWORD", "test-password")
 
 import app as app_module
 import pytest
@@ -345,7 +347,8 @@ def authed_client(monkeypatch):
 
 
 @pytest.fixture
-def unauth_client(monkeypatch):
+def unauth_client(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module, "login_throttle", app_module.LoginThrottle(str(tmp_path / "attempts.sqlite3")))
     fake_supabase = FakeSupabase()
     monkeypatch.setattr(app_module, "supabase", fake_supabase)
     app_module.app.config.update(TESTING=True)
@@ -1347,11 +1350,18 @@ def test_login_page_is_public_and_preserves_standard_password_manager_fields(una
 def test_login_valid_credentials_keep_the_existing_session_and_redirect(unauth_client, monkeypatch):
     monkeypatch.setattr(app_module, 'ADMIN_EMAIL', 'login-test@example.com')
     monkeypatch.setattr(app_module, 'ADMIN_PASSWORD', 'example-test-password')
-    response = unauth_client.post('/login', data={'email': 'login-test@example.com', 'password': 'example-test-password'})
+    monkeypatch.setattr(app_module, 'ADMIN_PASSWORD_HASH', app_module.password_hash('example-test-password'))
+    unauth_client.get('/login')
+    with unauth_client.session_transaction() as session:
+        token = session['login_csrf']
+        session['old_marker'] = 'remove-me'
+    response = unauth_client.post('/login', data={'email': 'login-test@example.com', 'password': 'example-test-password', 'csrf_token': token})
     assert response.status_code == 302
     assert response.headers['Location'] == '/'
     with unauth_client.session_transaction() as session:
         assert session['logged_in'] is True
+        assert 'old_marker' not in session
+        assert session.permanent
 
 
 @pytest.mark.parametrize('data', [
@@ -1362,6 +1372,10 @@ def test_login_valid_credentials_keep_the_existing_session_and_redirect(unauth_c
 def test_login_rejected_credentials_show_accessible_generic_error_without_echoing_password(unauth_client, monkeypatch, data):
     monkeypatch.setattr(app_module, 'ADMIN_EMAIL', 'login-test@example.com')
     monkeypatch.setattr(app_module, 'ADMIN_PASSWORD', 'example-test-password')
+    monkeypatch.setattr(app_module, 'ADMIN_PASSWORD_HASH', app_module.password_hash('example-test-password'))
+    unauth_client.get('/login')
+    with unauth_client.session_transaction() as session:
+        data = dict(data, csrf_token=session['login_csrf'])
     response = unauth_client.post('/login', data=data)
     assert response.status_code == 200
     html = response.get_data(as_text=True)

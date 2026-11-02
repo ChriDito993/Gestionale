@@ -43,11 +43,12 @@
                 {% if error %}
                 <div id="loginError" class="login-error" role="alert" tabindex="-1">
                     <strong>Accesso non riuscito</strong>
-                    <span>{{ error }}. Controlla email e password e riprova.</span>
+                    <span>{{ error }}</span>
                 </div>
                 {% endif %}
 
                 <form class="login-form" method="POST" action="{{ url_for('login') }}">
+                    <input type="hidden" name="csrf_token" value="{{ session.login_csrf }}">
                     <div class="login-field">
                         <label for="loginEmail">Indirizzo email</label>
                         <input id="loginEmail" type="email" name="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="La tua email" required{% if error %} aria-describedby="loginError"{% endif %}>

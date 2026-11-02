@@ -5,6 +5,9 @@ import uuid
 import smtplib
 import ssl
 import base64
+import secrets
+import tempfile
+from login_security import configure_session, LoginThrottle, password_hash, valid_credentials
 from email_tracking import ConfirmationStore, confirmation_fingerprint, sending_is_recent
 from package_accounting import PackageAccountingError, package_operation
 from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for, g, has_request_context
@@ -86,10 +89,14 @@ app = Flask(
 configure_logging()
 app.config["SHOW_PAYMENTS"] = (os.getenv("SHOW_PAYMENTS") or "false").strip().lower() in {"true", "1", "yes"}
 
-app.secret_key = os.getenv("SECRET_KEY", "super-secret-key-change-me")
+configure_session(app)
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH") or (password_hash(ADMIN_PASSWORD) if ADMIN_PASSWORD else None)
+if not ADMIN_EMAIL or not ADMIN_PASSWORD_HASH:
+    raise RuntimeError("Impostare ADMIN_EMAIL e ADMIN_PASSWORD_HASH (oppure ADMIN_PASSWORD).")
+login_throttle = LoginThrottle(os.getenv("LOGIN_RATE_LIMIT_DB", os.path.join(tempfile.gettempdir(), "gestionale-login-attempts.sqlite3")))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -669,6 +676,8 @@ def attach_request_id():
 
 @app.after_request
 def add_request_id_header(response):
+    if session.get("logged_in") or request.endpoint == "login":
+        response.headers["Cache-Control"] = "no-store"
     request_id = getattr(g, "request_id", None)
     if request_id:
         response.headers["X-Request-ID"] = request_id
@@ -763,19 +772,36 @@ def index():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    error = None
+    status = 200
+    retry_after = 0
+    if "login_csrf" not in session:
+        session["login_csrf"] = secrets.token_urlsafe(32)
     if request.method == "POST":
-        email = request.form.get("email")
-        password = request.form.get("password")
-
-        if email == ADMIN_EMAIL and password == ADMIN_PASSWORD:
-            session["logged_in"] = True
-            return redirect("/")
+        token = request.form.get("csrf_token", "")
+        if not secrets.compare_digest(token, session["login_csrf"]):
+            error = "Sessione di accesso scaduta. Riprova dal modulo qui sotto."
+            status = 400
         else:
+            retry_after = login_throttle.consume(request.remote_addr or "unknown")
+            if retry_after:
+                error = "Troppi tentativi di accesso. Attendi qualche minuto prima di riprovare."
+                status = 429
+        email = request.form.get("email", "")
+        password = request.form.get("password", "")
+        if not error and len(email) <= 254 and len(password) <= 1024 and valid_credentials(email, password, ADMIN_EMAIL, ADMIN_PASSWORD_HASH):
+            session.clear()
+            session["logged_in"] = True
+            session.permanent = True
+            return redirect("/")
+        elif not error:
             error = "Credenziali non valide"
-    else:
-        error = None
 
-    return render_template("login.html", error=error)
+    response = app.make_response((render_template("login.html", error=error), status))
+    response.headers["Cache-Control"] = "no-store"
+    if retry_after:
+        response.headers["Retry-After"] = str(retry_after)
+    return response
 
 @app.route("/logout")
 @login_required
@@ -2170,4 +2196,4 @@ Christian Di Tommaso
 # ===============================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5050, debug=True)
+    app.run(host="127.0.0.1", port=5050, debug=False)
