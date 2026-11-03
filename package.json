@@ -1,0 +1,15 @@
+{
+  "name": "gestionale-browser-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Test browser isolati del gestionale; nessuna build frontend in produzione",
+  "scripts": {
+    "test:unit": "node --test tests/test_workflow_frontend.js tests/test_csrf_frontend.js",
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "fullcalendar": "6.1.15"
+  }
+}
