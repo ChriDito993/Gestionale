@@ -2,4 +2,6 @@
 .DS_Store
 __pycache__/
 .backups/
+.venv/
+.venv-tools/
 .DS_Store
