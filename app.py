@@ -2,30 +2,25 @@ import os
 import re
 import logging
 import uuid
-import smtplib
-import ssl
-import base64
 import secrets
 import tempfile
 from login_security import configure_session, LoginThrottle, password_hash, valid_credentials
-from email_tracking import ConfirmationStore, confirmation_fingerprint, sending_is_recent
+from email_tracking import confirmation_fingerprint, sending_is_recent
+from services import mail_transport
+from services.appointment_notifications import AppointmentNotifications
 from package_accounting import PackageAccountingError, package_operation
 from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for, g, has_request_context
 from supabase import create_client
 from dotenv import load_dotenv
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from calendar import monthrange
 from functools import wraps
 from werkzeug.exceptions import HTTPException
-from werkzeug.utils import secure_filename
 
 from io import BytesIO
-from email.message import EmailMessage
-from email.utils import formataddr
 
 
-import requests
 try:
     import sentry_sdk
     from sentry_sdk.integrations.flask import FlaskIntegration
@@ -233,444 +228,10 @@ def normalize_datetime_local(value):
         return normalized
 
 
-def escape_ics_value(value):
-    return str(value or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
-
-
-def piega_riga_ics(riga):
-    """Rispetta il limite RFC 5545 di 75 ottetti per ogni riga ICS."""
-    righe = []
-    corrente = ""
-    lunghezza_corrente = 0
-
-    for carattere in riga:
-        lunghezza_carattere = len(carattere.encode("utf-8"))
-        if corrente and lunghezza_corrente + lunghezza_carattere > 75:
-            righe.append(corrente)
-            corrente = f" {carattere}"
-            lunghezza_corrente = 1 + lunghezza_carattere
-        else:
-            corrente += carattere
-            lunghezza_corrente += lunghezza_carattere
-
-    righe.append(corrente)
-    return "\r\n".join(righe)
-
-
-def nome_file_calendario(nome_cliente, numero_seduta=None):
-    """Nome leggibile dell'allegato, ripulito dai caratteri non sicuri per i file."""
-    nome_base = secure_filename("-".join((nome_cliente or "").split()))[:120].strip(".-_") or "Appuntamento"
-    nome_base = re.sub(r"[-_]+", "-", nome_base)
-    suffisso = f"-seduta-{secure_filename(str(numero_seduta))}" if numero_seduta else ""
-    return f"{nome_base}{suffisso}.ics"
-
-
-def genera_file_calendario(appuntamento, servizio_nome, info_seduta=None, nome_cliente=None):
-    """Crea un allegato ICS personalizzato, senza note cliniche."""
-    timezone_roma = ZoneInfo("Europe/Rome")
-
-    def parse_data_ora(value):
-        data_ora = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if data_ora.tzinfo is None:
-            return data_ora.replace(tzinfo=timezone_roma)
-        return data_ora.astimezone(timezone_roma)
-
-    inizio = parse_data_ora(appuntamento["start_datetime"])
-    fine = parse_data_ora(appuntamento["end_datetime"])
-    descrizione = f"Appuntamento presso Massoterapia & PT di Christian Di Tommaso."
-    if info_seduta:
-        descrizione += f"\n{info_seduta}"
-
-    nome_cliente = " ".join((nome_cliente or "").split())
-    titolo = f"{nome_cliente} – {servizio_nome}" if nome_cliente else f"Massoterapia & PT – {servizio_nome}"
-    if info_seduta:
-        titolo += f" – {info_seduta.replace('Seduta:', 'Seduta', 1)}"
-
-    uid_dominio = (os.getenv("CALENDAR_UID_DOMAIN") or "gestionale.local").strip()
-    righe = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "PRODID:-//Massoterapia & PT//Gestionale//IT",
-        "CALSCALE:GREGORIAN",
-        "METHOD:PUBLISH",
-        "BEGIN:VEVENT",
-        f"UID:appuntamento-{appuntamento['id']}@{uid_dominio}",
-        f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
-        f"DTSTART;TZID=Europe/Rome:{inizio.strftime('%Y%m%dT%H%M%S')}",
-        f"DTEND;TZID=Europe/Rome:{fine.strftime('%Y%m%dT%H%M%S')}",
-        f"SUMMARY:{escape_ics_value(titolo)}",
-        "LOCATION:Via Michele Lessona 9\\, Milano",
-        f"DESCRIPTION:{escape_ics_value(descrizione)}",
-        "END:VEVENT",
-        "END:VCALENDAR",
-        ""
-    ]
-    return "\r\n".join(piega_riga_ics(riga) for riga in righe).encode("utf-8")
-
-
-def recupera_dati_pacchetto(pacchetto_id):
-    if not pacchetto_id:
-        return None
-
-    try:
-        response = supabase.table("pacchetti_cliente") \
-            .select("cliente_id,tipi_pacchetto(numero_sedute)") \
-            .eq("id", pacchetto_id) \
-            .single() \
-            .execute()
-        pacchetto = response.data or {}
-        totale_sedute = (pacchetto.get("tipi_pacchetto") or {}).get("numero_sedute")
-        if pacchetto.get("cliente_id") and totale_sedute:
-            return {"cliente_id": pacchetto["cliente_id"], "totale_sedute": totale_sedute}
-    except Exception:
-        app.logger.exception("Impossibile recuperare i dati del pacchetto per l'email di conferma")
-    return None
-
-
-def prenota_conferma(appuntamento, cliente, allow_uncertain=False):
-    try:
-        return ConfirmationStore(supabase).claim(
-            appuntamento["id"], cliente["id"], confirmation_fingerprint(appuntamento, cliente.get("email")), allow_uncertain
-        )
-    except Exception:
-        app.logger.warning("Stato conferma non disponibile code=tracking_unavailable")
-        return {"acquired": False, "reason": "tracking_unavailable"}
-
-
-def registra_esito_conferma(appuntamento, cliente, claim, risultato):
-    try:
-        code = risultato.get("error_code")
-        status = "sent" if risultato["success"] else "unknown" if code in {"timeout", "delivery_unknown"} else "failed"
-        if code == "missing_email":
-            status = "missing_email"
-        ConfirmationStore(supabase).finish(
-            appuntamento["id"], cliente["id"], claim["attempt_id"], status, code, risultato.get("provider")
-        )
-        return True
-    except Exception:
-        app.logger.warning("Salvataggio stato conferma non riuscito code=tracking_unavailable")
-        return False
-
-
 def invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id, allow_uncertain=False):
-    """Invia le conferme dopo il salvataggio, senza rendere fallibile l'appuntamento."""
-    esito = {
-        "requested": True,
-        "attempted_count": 0,
-        "sent_count": 0,
-        "failed_count": 0,
-        "skipped_no_email_count": 0,
-        "errors": [],
-        "skipped_already_sent_count": 0,
-    }
-    if not appuntamenti or not clienti_ids:
-        return esito
-
-    try:
-        servizio_response = supabase.table("servizi") \
-            .select("nome") \
-            .eq("id", servizio_id) \
-            .single() \
-            .execute()
-        servizio_nome = (servizio_response.data or {}).get("nome")
-    except Exception:
-        app.logger.exception("Impossibile recuperare il servizio per l'email di conferma")
-        esito["failed_count"] = len(appuntamenti) * len(clienti_ids)
-        return esito
-
-    if not servizio_nome:
-        app.logger.warning("Email di conferma non inviata: servizio non disponibile")
-        esito["failed_count"] = len(appuntamenti) * len(clienti_ids)
-        return esito
-
-    clienti_con_email = []
-    for cliente_id in clienti_ids:
-        try:
-            cliente_response = supabase.table("clienti") \
-                .select("id,nome,cognome,email") \
-                .eq("id", cliente_id) \
-                .single() \
-                .execute()
-            cliente = cliente_response.data
-            if cliente:
-                clienti_con_email.append(cliente)
-            else:
-                esito["skipped_no_email_count"] += 1
-        except Exception:
-            app.logger.exception("Impossibile recuperare il cliente per l'email di conferma")
-            esito["failed_count"] += len(appuntamenti)
-
-    for appuntamento in appuntamenti:
-        try:
-            inizio = datetime.fromisoformat(appuntamento["start_datetime"].replace("Z", "+00:00"))
-            fine = datetime.fromisoformat(appuntamento["end_datetime"].replace("Z", "+00:00"))
-            dati_pacchetto = recupera_dati_pacchetto(appuntamento.get("pacchetto_cliente_id"))
-            appuntamento_di_coppia = "coppia" in servizio_nome.casefold()
-
-            for cliente in clienti_con_email:
-                if not (cliente.get("email") or "").strip():
-                    esito["skipped_no_email_count"] += 1
-                    claim = prenota_conferma(appuntamento, cliente, allow_uncertain)
-                    if claim["acquired"]:
-                        registra_esito_conferma(appuntamento, cliente, claim, {"success": False, "error_code": "missing_email"})
-                    continue
-                info_seduta = None
-                if (
-                    dati_pacchetto
-                    and (
-                        appuntamento_di_coppia
-                        or str(dati_pacchetto["cliente_id"]) == str(cliente.get("id"))
-                    )
-                    and appuntamento.get("numero_seduta")
-                ):
-                    info_seduta = f"Seduta: {appuntamento['numero_seduta']} di {dati_pacchetto['totale_sedute']}"
-
-                righe_seduta = f"{info_seduta}\n" if info_seduta else ""
-                corpo = f"""Ciao {cliente.get('nome') or ''},
-
-ti confermo il tuo prossimo appuntamento presso Massoterapia & PT di Christian Di Tommaso.
-
-I dettagli del tuo appuntamento
-
-Data: {inizio.strftime('%d/%m/%Y')}
-Orario: {inizio.strftime('%H:%M')} – {fine.strftime('%H:%M')}
-Servizio: {servizio_nome}
-{righe_seduta}Luogo: Via Michele Lessona 9, Milano
-
-Per comodità, trovi in allegato il file per aggiungere l'appuntamento al tuo calendario personale, Google Calendar o Apple Calendar.
-
-Per qualsiasi necessità o variazione, puoi contattarmi direttamente.
-
-A presto!
-
-Christian Di Tommaso
-Massoterapia & PT
-Via Michele Lessona 9, Milano
-ditommaso.massoterapia@gmail.com
-"""
-                nome_cliente = " ".join(
-                    str(cliente.get(campo) or "").strip() for campo in ("nome", "cognome")
-                ).strip()
-                calendario = genera_file_calendario(appuntamento, servizio_nome, info_seduta, nome_cliente)
-                nome_allegato = nome_file_calendario(
-                    nome_cliente, appuntamento.get("numero_seduta") if info_seduta else None
-                )
-                allegati = [(nome_allegato, calendario, "text", "calendar")]
-                claim = prenota_conferma(appuntamento, cliente, allow_uncertain)
-                if not claim["acquired"]:
-                    code = claim["reason"]
-                    if code == "already_sent":
-                        esito["skipped_already_sent_count"] += 1
-                    else:
-                        esito["failed_count"] += 1
-                        errore = {"code": code, "message": EMAIL_ERROR_MESSAGES[code]}
-                        if errore not in esito["errors"]:
-                            esito["errors"].append(errore)
-                    continue
-                esito["attempted_count"] += 1
-                risultato_email = invia_email_dettagliata(
-                    cliente["email"],
-                    "Conferma appuntamento – Massoterapia & PT",
-                    corpo,
-                    allegati=allegati
-                )
-                if not registra_esito_conferma(appuntamento, cliente, claim, risultato_email):
-                    errore = {"code": "tracking_unavailable", "message": EMAIL_ERROR_MESSAGES["tracking_unavailable"]}
-                    if errore not in esito["errors"]:
-                        esito["errors"].append(errore)
-                if risultato_email["success"]:
-                    esito["sent_count"] += 1
-                else:
-                    esito["failed_count"] += 1
-                    errore = {
-                        "code": risultato_email["error_code"],
-                        "message": risultato_email["message"],
-                    }
-                    if errore not in esito["errors"]:
-                        esito["errors"].append(errore)
-                    app.logger.warning("Invio conferma non riuscito appuntamento_id=%s", appuntamento.get("id"))
-        except Exception:
-            # L'appuntamento e' gia' stato creato: un errore email non deve annullarlo.
-            esito["failed_count"] += len(clienti_con_email)
-            app.logger.exception("Errore invio email di conferma appuntamento_id=%s", appuntamento.get("id"))
-
-    return esito
-
-
-def invia_email(destinatario, oggetto, corpo, allegati=None):
-    """Mantiene il risultato booleano usato dai chiamanti esistenti."""
-    return invia_email_dettagliata(destinatario, oggetto, corpo, allegati)["success"]
-
-
-EMAIL_ERROR_MESSAGES = {
-    "tracking_unavailable": "Stato email non disponibile: verifica il collegamento al database prima di riprovare.",
-    "already_sent": "La conferma è già stata inviata a questo cliente.",
-    "send_in_progress": "Invio già in corso. Attendi prima di riprovare.",
-    "delivery_unknown": "Esito incerto: l'email potrebbe essere già partita. Verifica prima di reinviarla.",
-    "invalid_provider": "Servizio email non valido: imposta EMAIL_PROVIDER su gmail o resend.",
-    "missing_configuration": "Configurazione email incompleta per il servizio selezionato.",
-    "authentication_failed": "Autenticazione email non riuscita: controlla le credenziali del servizio.",
-    "network_unreachable": "Connessione al servizio email non disponibile. Se usi Gmail su Render Free, le porte SMTP sono bloccate.",
-    "connection_failed": "Impossibile collegarsi al servizio email: controlla la connessione del server.",
-    "timeout": "Il servizio email non ha risposto in tempo: invio non confermato.",
-    "tls_failed": "Connessione sicura al servizio email non riuscita.",
-    "sender_not_verified": "Mittente email non autorizzato: verifica il dominio e l'indirizzo mittente su Resend.",
-    "test_recipient_only": "Resend è in modalità di prova: per inviare ai clienti serve un dominio verificato.",
-    "permission_denied": "Invio email non autorizzato: controlla i permessi del servizio email.",
-    "recipient_rejected": "Il servizio email ha rifiutato l'indirizzo del destinatario.",
-    "sender_rejected": "Il servizio email ha rifiutato l'indirizzo mittente.",
-    "rate_limited": "Limite di invio email raggiunto. Riprova più tardi.",
-    "provider_unavailable": "Servizio email temporaneamente non disponibile.",
-    "send_failed": "Invio email non riuscito: controlla la configurazione del servizio.",
-}
-
-
-def esito_invio_email(provider, error_code=None):
-    """Restituisce solo codici e messaggi controllati, senza risposte o segreti del provider."""
-    if error_code:
-        app.logger.warning("Invio email fallito provider=%s code=%s", provider, error_code)
-    return {
-        "success": error_code is None,
-        "provider": provider,
-        "error_code": error_code,
-        "message": EMAIL_ERROR_MESSAGES.get(error_code) if error_code else None,
-    }
-
-
-def invia_email_dettagliata(destinatario, oggetto, corpo, allegati=None):
-    """Usa il provider esplicito; senza EMAIL_PROVIDER conserva la selezione precedente.
-
-    Non effettua fallback o reinvii automatici: dopo un timeout l'accettazione
-    del messaggio potrebbe essere avvenuta, quindi un secondo invio può duplicarlo.
-    """
-    # EMAIL_USER / EMAIL_PASS sono mantenute per compatibilita' con la configurazione Render esistente.
-    gmail_email = (os.getenv("GMAIL_EMAIL") or os.getenv("EMAIL_USER") or "").strip()
-    gmail_app_password = "".join(
-        (os.getenv("GMAIL_APP_PASSWORD") or os.getenv("EMAIL_PASS") or "").split()
-    )
-    provider = (os.getenv("EMAIL_PROVIDER") or "").strip().lower()
-    if provider and provider not in {"gmail", "resend"}:
-        return esito_invio_email("invalid", "invalid_provider")
-    if not provider:
-        provider = "gmail" if gmail_email and gmail_app_password else "resend"
-
-    if provider == "gmail":
-        if not gmail_email or not gmail_app_password:
-            return esito_invio_email(provider, "missing_configuration")
-        accepted = False
-        sending = False
-
-        def smtp_failure(code):
-            if accepted:
-                return esito_invio_email(provider)
-            if sending and code in {"timeout", "connection_failed", "network_unreachable", "send_failed", "tls_failed"}:
-                code = "delivery_unknown"
-            return esito_invio_email(provider, code)
-        try:
-            messaggio = EmailMessage()
-            messaggio["From"] = formataddr((os.getenv("GMAIL_FROM_NAME", "Gestionale"), gmail_email))
-            messaggio["To"] = destinatario
-            messaggio["Subject"] = oggetto
-            messaggio.set_content(corpo)
-            for nome_file, contenuto, maintype, subtype in allegati or []:
-                messaggio.add_attachment(
-                    contenuto,
-                    maintype=maintype,
-                    subtype=subtype,
-                    filename=nome_file
-                )
-
-            context = ssl.create_default_context()
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=10) as smtp:
-                smtp.login(gmail_email, gmail_app_password)
-                sending = True
-                smtp.send_message(messaggio)
-                accepted = True
-            return esito_invio_email(provider)
-        except smtplib.SMTPAuthenticationError:
-            return smtp_failure("authentication_failed")
-        except smtplib.SMTPRecipientsRefused:
-            return smtp_failure("recipient_rejected")
-        except smtplib.SMTPSenderRefused:
-            return smtp_failure("sender_rejected")
-        except ssl.SSLError:
-            return smtp_failure("tls_failed")
-        except TimeoutError:
-            return smtp_failure("timeout")
-        except smtplib.SMTPException:
-            return smtp_failure("send_failed")
-        except OSError as error:
-            code = "network_unreachable" if error.errno in {101, 113} else "connection_failed"
-            return smtp_failure(code)
-        except Exception:
-            return smtp_failure("send_failed")
-
-    resend_api_key = (os.getenv("RESEND_API_KEY") or "").strip()
-    if not resend_api_key:
-        return esito_invio_email(provider, "missing_configuration")
-
-    try:
-        payload = {
-            "from": os.getenv("RESEND_FROM_EMAIL", "Gestionale <onboarding@resend.dev>"),
-            "to": [destinatario],
-            "subject": oggetto,
-            "text": corpo
-        }
-        if allegati:
-            payload["attachments"] = [
-                {
-                    "filename": nome_file,
-                    "content": base64.b64encode(contenuto).decode("ascii")
-                }
-                for nome_file, contenuto, _maintype, _subtype in allegati
-            ]
-
-        response = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {resend_api_key}",
-                "Content-Type": "application/json"
-            },
-            json=payload,
-            timeout=10
-        )
-        if response.status_code in [200, 201]:
-            return esito_invio_email(provider)
-
-        # Il testo esterno serve solo alla classificazione: non viene esposto o registrato.
-        try:
-            errore = response.json()
-        except ValueError:
-            errore = {}
-        if not isinstance(errore, dict):
-            errore = {}
-        nome_errore = str(errore.get("name", "")).lower()
-        messaggio_errore = str(errore.get("message", "")).lower()
-        code = "send_failed"
-        if (response.status_code == 401
-                or nome_errore in {"invalid_api_key", "missing_api_key", "restricted_api_key", "suspended_api_key"}
-                or (response.status_code == 400 and "api key is invalid" in messaggio_errore)):
-            code = "authentication_failed"
-        elif response.status_code in {400, 403, 422} and "only send testing emails" in messaggio_errore:
-            code = "test_recipient_only"
-        elif response.status_code in {400, 403, 422} and "domain" in messaggio_errore and "verif" in messaggio_errore:
-            code = "sender_not_verified"
-        elif response.status_code == 403:
-            code = "permission_denied"
-        elif response.status_code == 429:
-            code = "rate_limited"
-        elif response.status_code >= 500:
-            code = "provider_unavailable"
-        return esito_invio_email(provider, code)
-    except requests.exceptions.Timeout:
-        return esito_invio_email(provider, "timeout")
-    except requests.exceptions.SSLError:
-        return esito_invio_email(provider, "tls_failed")
-    except requests.exceptions.ConnectionError:
-        # La connessione può cadere dopo l'accettazione da parte dell'API.
-        return esito_invio_email(provider, "delivery_unknown")
-    except Exception:
-        return esito_invio_email(provider, "send_failed")
+    """Bind the current backend client and delivery transport for this request."""
+    service = AppointmentNotifications(supabase, app.logger, mail_transport.invia_email_dettagliata)
+    return service.invia_conferme_appuntamento(appuntamenti, clienti_ids, servizio_id, allow_uncertain)
 
 
 @app.before_request
@@ -1337,7 +898,7 @@ def conferme_appuntamento(id):
     if not appuntamento:
         return jsonify({"error": "Appuntamento non trovato"}), 404
     if not isinstance(appuntamento.get("email_conferme"), dict):
-        return jsonify({"error": EMAIL_ERROR_MESSAGES["tracking_unavailable"]}), 503
+        return jsonify({"error": mail_transport.EMAIL_ERROR_MESSAGES["tracking_unavailable"]}), 503
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
         cliente_id = str(data.get("cliente_id") or "")
@@ -1368,7 +929,7 @@ def conferme_appuntamento(id):
             "has_email": bool((cliente.get("email") or "").strip()),
             "status": status,
             "updated_at": stato.get("updated_at"),
-            "message": EMAIL_ERROR_MESSAGES.get(stato.get("error_code")),
+            "message": mail_transport.EMAIL_ERROR_MESSAGES.get(stato.get("error_code")),
             "can_send": bool((cliente.get("email") or "").strip()) and status not in {"sent", "sending"}
                 and appuntamento.get("stato") not in {"annullato", "occupato"},
         })
@@ -2202,7 +1763,7 @@ MASSOTERAPIA & PT
 Christian Di Tommaso
 """
 
-    esito = invia_email_dettagliata(cliente["email"], f"Promemoria Appuntamento – {servizio_nome}", corpo)
+    esito = mail_transport.invia_email_dettagliata(cliente["email"], f"Promemoria Appuntamento – {servizio_nome}", corpo)
     if esito["success"]:
         return jsonify({"status": "success"})
 

@@ -26,6 +26,7 @@ import supabase
 supabase.create_client = lambda *a, **kw: None  # Do not even construct a live client.
 from test_api_appuntamenti import FakeQuery, FakeSupabase, FakePackageRpc
 import app as application
+from services import mail_transport
 from flask import request, jsonify
 
 # Defense in depth: outbound sockets and every email transport fail closed.
@@ -59,9 +60,9 @@ def blocked_email(*args, **kwargs):
     raise RuntimeError('Email transport disabled in browser tests')
 
 
-application.smtplib.SMTP_SSL = blocked_email
-application.requests.post = blocked_email
-application.invia_email_dettagliata = blocked_email
+mail_transport.smtplib.SMTP_SSL = blocked_email
+mail_transport.requests.post = blocked_email
+mail_transport.invia_email_dettagliata = blocked_email
 
 
 class BrowserQuery(FakeQuery):
