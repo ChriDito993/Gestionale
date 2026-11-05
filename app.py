@@ -8,17 +8,16 @@ from login_security import configure_session, LoginThrottle, password_hash, vali
 from email_tracking import confirmation_fingerprint, sending_is_recent
 from services import mail_transport
 from services.appointment_notifications import AppointmentNotifications
+from routes.clients import register_client_routes
 from package_accounting import PackageAccountingError, package_operation
-from flask import Flask, render_template, request, jsonify, redirect, send_file, session, render_template_string, url_for, g, has_request_context
+from flask import Flask, render_template, request, jsonify, redirect, session, render_template_string, url_for, g, has_request_context
 from supabase import create_client
 from dotenv import load_dotenv
-from datetime import date, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from calendar import monthrange
 from functools import wraps
 from werkzeug.exceptions import HTTPException
-
-from io import BytesIO
 
 
 try:
@@ -28,10 +27,6 @@ except ImportError:
     sentry_sdk = None
     FlaskIntegration = None
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import inch
-from reportlab.lib.pagesizes import A4
 
 # ===============================
 # CONFIG BASE
@@ -342,10 +337,6 @@ def index():
     )
 
 # ===============================
-# API CLIENTI
-# ===============================
-
-# ===============================
 # LOGIN
 # ===============================
 
@@ -388,144 +379,6 @@ def logout():
     session.clear()
     return redirect("/login")
 
-@app.route("/api/clienti", methods=["GET"])
-@login_required
-def get_clienti():
-    response = supabase.table("clienti") \
-        .select("id,nome,cognome,telefono,email") \
-        .execute()
-    return jsonify(response.data)
-
-
-@app.route("/api/clienti", methods=["POST"])
-@login_required
-def crea_cliente():
-    data = request.json or {}
-
-    telefono = data.get("telefono")
-
-    # Normalizzazione telefono (aggiunge 39 se numero italiano senza prefisso)
-    if telefono:
-        telefono = telefono.replace(" ", "").replace("-", "").replace("+", "")
-        if telefono.startswith("3") and len(telefono) == 10:
-            telefono = "39" + telefono
-        data["telefono"] = telefono
-
-    response = supabase.table("clienti").insert(data).execute()
-    return jsonify(response.data)
-
-# PUT route per aggiornare dati anagrafici di un cliente
-def validate_client_birth_date(value):
-    """Optional profile date, never a timestamp or a date in the future."""
-    if value is None or value == "":
-        return None
-    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
-        raise ValueError("Inserisci una data di nascita valida")
-    try:
-        born = date.fromisoformat(value.strip())
-    except ValueError:
-        raise ValueError("Inserisci una data di nascita valida") from None
-    if born > studio_now().date():
-        raise ValueError("La data di nascita non può essere futura")
-    return born.isoformat()
-
-
-@app.route("/api/clienti/<cliente_id>", methods=["PUT"])
-@login_required
-def aggiorna_cliente(cliente_id):
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({"error": "Dati anagrafici non validi"}), 400
-
-    if "data_nascita" in data:
-        try:
-            data["data_nascita"] = validate_client_birth_date(data["data_nascita"])
-        except ValueError as error:
-            return jsonify({"error": str(error)}), 400
-
-    telefono = data.get("telefono")
-
-    # Normalizzazione telefono
-    if telefono:
-        telefono = telefono.replace(" ", "").replace("-", "").replace("+", "")
-        if telefono.startswith("3") and len(telefono) == 10:
-            telefono = "39" + telefono
-
-    # Permettiamo solo campi modificabili
-    campi_aggiornabili = {
-        "nome": data.get("nome"),
-        "cognome": data.get("cognome"),
-        "telefono": telefono,
-        "email": data.get("email")
-    }
-
-    # Rimuoviamo eventuali None
-    campi_aggiornabili = {k: v for k, v in campi_aggiornabili.items() if v is not None}
-    # Omitted dates stay unchanged; an explicit empty date clears only this field.
-    if "data_nascita" in data:
-        campi_aggiornabili["data_nascita"] = data["data_nascita"]
-
-    response = supabase.table("clienti") \
-        .update(campi_aggiornabili) \
-        .eq("id", cliente_id) \
-        .execute()
-
-    return jsonify(response.data)
-
-# Aggiunta rapida dalla creazione appuntamento: mai sovrascrivere un'email esistente.
-@app.route("/api/clienti/<cliente_id>/email", methods=["PUT"])
-@login_required
-def aggiungi_email_cliente(cliente_id):
-    data = request.get_json(silent=True)
-    email = data.get("email") if isinstance(data, dict) else None
-    if not isinstance(email, str):
-        return jsonify({"error": "Inserisci un indirizzo email valido"}), 400
-    email = email.strip()
-    if len(email) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
-        return jsonify({"error": "Inserisci un indirizzo email valido"}), 400
-
-    rows = supabase.table("clienti").select("id,email").eq("id", cliente_id).limit(1).execute().data or []
-    if not rows:
-        return jsonify({"error": "Cliente non trovato"}), 404
-    precedente = rows[0].get("email")
-    if precedente and precedente.strip():
-        if precedente.strip().casefold() == email.casefold():
-            return jsonify({"id": rows[0]["id"], "email": precedente.strip()})
-        return jsonify({"error": "Il cliente ha già un'email in anagrafica. Ricarica i clienti prima di riprovare."}), 409
-
-    query = supabase.table("clienti").update({"email": email}).eq("id", cliente_id)
-    # Compare-and-swap: un altro operatore potrebbe averla aggiunta nel frattempo.
-    query = query.is_("email", "null") if precedente is None else query.eq("email", precedente)
-    aggiornati = query.execute().data or []
-    if not aggiornati:
-        return jsonify({"error": "L'anagrafica è cambiata. Ricarica i clienti prima di riprovare."}), 409
-    return jsonify({"id": aggiornati[0]["id"], "email": aggiornati[0]["email"]})
-
-# DELETE route per eliminare cliente
-@app.route("/api/clienti/<cliente_id>", methods=["DELETE"])
-@login_required
-def elimina_cliente(cliente_id):
-    result = package_operation(supabase, "delete_client", {"id": cliente_id})
-    if not result.get("deleted"):
-        return jsonify({"error": "Cliente non trovato"}), 404
-    invalidate_calendar_cache()
-    invalidate_dashboard_caches()
-    return jsonify({"success": True})
-
-# GET route per recuperare singolo cliente (usato per WhatsApp reminder)
-@app.route("/api/clienti/<cliente_id>", methods=["GET"])
-@login_required
-def get_cliente_singolo(cliente_id):
-    response = supabase.table("clienti") \
-        .select("id, nome, cognome, telefono, email") \
-        .eq("id", cliente_id) \
-        .single() \
-        .execute()
-
-    if not response.data:
-        return jsonify({"error": "Cliente non trovato"}), 404
-
-    return jsonify(response.data)
 
 # ===============================
 # API APPUNTAMENTI
@@ -564,40 +417,6 @@ def calendar_event(appo):
 def studio_now():
     """Appointment timestamps are stored as Rome wall-clock times, including on Render."""
     return datetime.now(ZoneInfo("Europe/Rome")).replace(tzinfo=None)
-
-
-@app.route("/api/compleanni_oggi", methods=["GET"])
-@login_required
-def compleanni_oggi():
-    today = studio_now().date()
-    birthdays = []
-    page_size = 1000
-    offset = 0
-    try:
-        while True:
-            rows = supabase.table("clienti").select("id,nome,cognome,data_nascita") \
-                .order("id").range(offset, offset + page_size - 1).execute().data
-            if not isinstance(rows, list):
-                raise ValueError("Missing birthdays response")
-            for client in rows:
-                try:
-                    # Postgres DATE values are ISO dates, independent of the birth year.
-                    born = date.fromisoformat(client.get("data_nascita") or "")
-                except (TypeError, ValueError):
-                    continue
-                if born <= today and (born.month, born.day) == (today.month, today.day):
-                    birthdays.append({key: client.get(key) for key in ("id", "nome", "cognome")})
-            if len(rows) < page_size:
-                break
-            offset += page_size
-        birthdays.sort(key=lambda person: (str(person.get("cognome") or "").casefold(), str(person.get("nome") or "").casefold(), str(person["id"])))
-        result = jsonify({"data": today.isoformat(), "clienti": birthdays})
-    except Exception:
-        app.logger.exception("Errore lettura compleanni del giorno")
-        result = jsonify({"error": "Impossibile caricare i compleanni. Riprova tra poco."})
-        result.status_code = 503
-    result.headers["Cache-Control"] = "no-store"
-    return result
 
 
 def counted_studio_appointment(row):
@@ -1308,224 +1127,14 @@ def elimina_pagamento(pagamento_id):
     return jsonify({"success": True})
 
 # ===============================
-# ARCHIVIO CLIENTI
+# PAGINA PAGAMENTI
 # ===============================
-
-@app.route("/clienti")
-@login_required
-def lista_clienti():
-    response = supabase.table("clienti") \
-        .select("id,nome,cognome,telefono,email") \
-        .order("cognome") \
-        .execute()
-
-    return render_template("clienti.html", clienti=response.data)
 
 
 @app.route("/pagamenti")
 @login_required
 def pagina_pagamenti():
     return render_template("pagamenti.html")
-
-# ===============================
-# DETTAGLIO CLIENTE
-# ===============================
-
-@app.route("/cliente/<cliente_id>")
-@login_required
-def dettaglio_cliente(cliente_id):
-
-    cliente = supabase.table("clienti") \
-        .select("*") \
-        .eq("id", cliente_id) \
-        .single() \
-        .execute().data
-
-    tipi_pacchetto = supabase.table("tipi_pacchetto") \
-        .select("*, servizi(nome)") \
-        .execute().data
-
-    pacchetti_cliente = supabase.table("pacchetti_cliente") \
-        .select("*, tipi_pacchetto(nome, numero_sedute)") \
-        .eq("cliente_id", cliente_id) \
-        .eq("stato", "attivo") \
-        .execute().data
-    
-    for pac in pacchetti_cliente:
-        pac["sedute_rimanenti"] = max(0,
-            pac["tipi_pacchetto"]["numero_sedute"] - (pac["sedute_effettuate"] or 0))
-
-    now = datetime.now().isoformat()
-
-    # Recupero appuntamenti tramite tabella ponte
-    relazioni = supabase.table("appuntamenti_clienti") \
-        .select("appuntamento_id") \
-        .eq("cliente_id", cliente_id) \
-        .execute().data
-
-    appuntamenti_ids = [r["appuntamento_id"] for r in relazioni]
-
-    # Evita errore se lista vuota
-    if not appuntamenti_ids:
-        appuntamenti_ids = ["00000000-0000-0000-0000-000000000000"]
-
-    appuntamenti_raw = supabase.table("appuntamenti") \
-        .select("*, servizi(nome), appuntamenti_clienti(cliente_id, clienti(nome,cognome))") \
-        .in_("id", appuntamenti_ids) \
-        .gte("start_datetime", now) \
-        .order("start_datetime") \
-        .execute().data
-
-    appuntamenti = []
-
-    for appo in appuntamenti_raw:
-        dt = datetime.fromisoformat(appo["start_datetime"].replace("Z", "+00:00"))
-        data_formattata = dt.strftime("%d/%m/%Y ore %H:%M")
-
-        condivisi = []
-
-        for rel in appo.get("appuntamenti_clienti", []):
-            cid = rel.get("cliente_id")
-            cliente_rel = rel.get("clienti")
-
-            if cid and str(cid) != str(cliente_id) and cliente_rel:
-                condivisi.append(f"👤 {cliente_rel['nome']} {cliente_rel['cognome']}")
-
-        appuntamenti.append({
-            "id": appo["id"],
-            "data_formattata": data_formattata,
-            "servizio": appo["servizi"]["nome"],
-            "stato": appo["stato"],
-            "condivisi": condivisi
-        })
-
-    # ===============================
-    # STORICO COMPLETO APPUNTAMENTI
-    # ===============================
-
-    storico_raw = supabase.table("appuntamenti") \
-        .select("*, servizi(nome), appuntamenti_clienti(cliente_id, clienti(nome,cognome))") \
-        .in_("id", appuntamenti_ids) \
-        .order("start_datetime", desc=True) \
-        .execute().data
-
-    storico_appuntamenti = []
-
-    totale_sedute = 0
-    ultima_visita = None
-    prossima_visita = None
-
-    now_dt = datetime.now()
-
-    for appo in storico_raw:
-        dt = datetime.fromisoformat(appo["start_datetime"].replace("Z", "+00:00"))
-        data_formattata = dt.strftime("%d/%m/%Y ore %H:%M")
-
-        condivisi = []
-        for rel in appo.get("appuntamenti_clienti", []):
-            cid = rel.get("cliente_id")
-            cliente_rel = rel.get("clienti")
-            if cid and str(cid) != str(cliente_id) and cliente_rel:
-                condivisi.append(f"👤 {cliente_rel['nome']} {cliente_rel['cognome']}")
-
-        storico_appuntamenti.append({
-            "id": appo["id"],
-            "data_formattata": data_formattata,
-            "servizio": appo["servizi"]["nome"],
-            "stato": appo.get("stato"),
-            "numero_seduta": appo.get("numero_seduta"),
-            "note": (appo.get("note") or "").strip(),
-            "condivisi": condivisi
-        })
-
-        # Calcolo totale sedute (basato su numero_seduta)
-        if appo.get("numero_seduta"):
-            totale_sedute += 1
-
-        # Ultima visita (passata più recente)
-        if dt <= now_dt:
-            if not ultima_visita or dt > ultima_visita:
-                ultima_visita = dt
-
-        # Prossima visita (futura più vicina)
-        if dt > now_dt:
-            if not prossima_visita or dt < prossima_visita:
-                prossima_visita = dt
-
-    ultima_visita_str = ultima_visita.strftime("%d/%m/%Y") if ultima_visita else None
-    prossima_visita_str = prossima_visita.strftime("%d/%m/%Y") if prossima_visita else None
-
-    # Sedute rimanenti (somma pacchetti attivi)
-    sedute_rimanenti = sum(pac.get("sedute_rimanenti", 0) for pac in pacchetti_cliente)
-
-    nome_cliente_pagamenti = f"{cliente.get('nome', '')} {cliente.get('cognome', '')}".strip()
-
-    pagamenti_raw = supabase.table("pagamenti") \
-        .select("cliente,importo,data_pagamento,note") \
-        .eq("cliente", nome_cliente_pagamenti) \
-        .order("data_pagamento", desc=True) \
-        .execute().data or []
-
-    def parse_importo_pagamento(value):
-        if isinstance(value, (int, float)):
-            return float(value)
-
-        raw = str(value or "").strip().replace("€", "").replace(" ", "")
-        if raw.count(",") == 1 and raw.count(".") >= 1:
-            raw = raw.replace(".", "").replace(",", ".")
-        elif "," in raw:
-            raw = raw.replace(",", ".")
-
-        try:
-            return float(raw)
-        except (TypeError, ValueError):
-            return 0.0
-
-    pagamenti_cliente = []
-    totale_pagamenti = 0.0
-
-    for pagamento in pagamenti_raw:
-        importo_value = parse_importo_pagamento(pagamento.get("importo"))
-        totale_pagamenti += importo_value
-
-        data_value = pagamento.get("data_pagamento")
-        try:
-            data_dt = datetime.fromisoformat(str(data_value).replace("Z", "+00:00"))
-            data_formattata = data_dt.strftime("%d/%m/%Y")
-        except (TypeError, ValueError):
-            data_formattata = data_value or "-"
-
-        importo_label = f"€ {importo_value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-        pagamenti_cliente.append({
-            "cliente": pagamento.get("cliente") or "-",
-            "data_formattata": data_formattata,
-            "importo": importo_value,
-            "importo_label": importo_label,
-            "note": pagamento.get("note") or "-"
-        })
-
-    totale_pagamenti_label = f"€ {totale_pagamenti:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    ultimo_pagamento_data = pagamenti_cliente[0]["data_formattata"] if pagamenti_cliente else None
-
-    return render_template(
-        "cliente_dettaglio.html",
-        cliente=cliente,
-        data_oggi_studio=studio_now().date().isoformat(),
-        appuntamenti=appuntamenti,
-        tipi_pacchetto=tipi_pacchetto,
-        pacchetti_cliente=pacchetti_cliente,
-        storico_appuntamenti=storico_appuntamenti,
-        stats_totali=totale_sedute,
-        stats_rimanenti=sedute_rimanenti,
-        ultima_visita=ultima_visita_str,
-        prossima_visita=prossima_visita_str,
-        pagamenti_cliente=pagamenti_cliente,
-        pagamenti_totale_label=totale_pagamenti_label,
-        pagamenti_count=len(pagamenti_cliente),
-        pagamenti_ultimo=ultimo_pagamento_data
-    )
-
 
 # ===============================
 # ASSEGNA PACCHETTO
@@ -1545,118 +1154,9 @@ def assegna_pacchetto():
 
 
 # ===============================
-# SALVA NOTE
+# AGGIORNA STATO APPUNTAMENTO
 # ===============================
 
-@app.route("/cliente/<cliente_id>/note", methods=["POST"])
-@login_required
-def aggiorna_note(cliente_id):
-
-    note = request.form.get("note_cliniche")
-
-    supabase.table("clienti") \
-        .update({"note_cliniche": note}) \
-        .eq("id", cliente_id) \
-        .execute()
-
-    return redirect(f"/cliente/{cliente_id}")
-
-# ===============================
-# GENERA PDF PROMEMORIA
-# ===============================
-
-@app.route("/cliente/<cliente_id>/promemoria")
-@login_required
-def genera_promemoria(cliente_id):
-
-    cliente = supabase.table("clienti") \
-        .select("*") \
-        .eq("id", cliente_id) \
-        .single() \
-        .execute().data
-
-    now = datetime.now().isoformat()
-
-    # Include appuntamenti condivisi (tabella ponte) + fallback legacy (cliente_id diretto)
-    relazioni = supabase.table("appuntamenti_clienti") \
-        .select("appuntamento_id") \
-        .eq("cliente_id", cliente_id) \
-        .execute().data or []
-
-    appuntamenti_ids = {
-        rel.get("appuntamento_id")
-        for rel in relazioni
-        if rel.get("appuntamento_id")
-    }
-
-    legacy_rows = supabase.table("appuntamenti") \
-        .select("id") \
-        .eq("cliente_id", cliente_id) \
-        .gte("start_datetime", now) \
-        .execute().data or []
-
-    for row in legacy_rows:
-        app_id = row.get("id")
-        if app_id:
-            appuntamenti_ids.add(app_id)
-
-    appuntamenti_raw = []
-    if appuntamenti_ids:
-        appuntamenti_raw = supabase.table("appuntamenti") \
-            .select("*, servizi(nome)") \
-            .in_("id", list(appuntamenti_ids)) \
-            .gte("start_datetime", now) \
-            .order("start_datetime") \
-            .execute().data or []
-
-    appuntamenti_raw.sort(key=lambda appo: appo.get("start_datetime", ""))
-
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
-    elements = []
-    styles = getSampleStyleSheet()
-
-    elements.append(Paragraph(
-        "<b>MASSOTERAPIA & PT di Christian Di Tommaso</b>",
-        styles["Heading1"]
-    ))
-    elements.append(Spacer(1, 0.3 * inch))
-
-    elements.append(Paragraph("Promemoria Appuntamenti", styles["Heading2"]))
-    elements.append(Spacer(1, 0.3 * inch))
-
-    elements.append(Paragraph(
-        f"<b>Cliente:</b> {cliente['nome']} {cliente['cognome']}",
-        styles["Normal"]
-    ))
-    elements.append(Spacer(1, 0.3 * inch))
-
-    lista = []
-
-    for appo in appuntamenti_raw:
-        dt = datetime.fromisoformat(appo["start_datetime"].replace("Z", "+00:00"))
-        data_formattata = dt.strftime("%d/%m/%Y ore %H:%M")
-        testo = f"{data_formattata} - {appo['servizi']['nome']}"
-        lista.append(ListItem(Paragraph(testo, styles["Normal"])))
-
-    if not lista:
-        elements.append(Paragraph("Nessun appuntamento futuro registrato.", styles["Normal"]))
-    else:
-        elements.append(ListFlowable(lista, bulletType="bullet"))
-    elements.append(Spacer(1, 0.5 * inch))
-
-    oggi = datetime.now().strftime("%d/%m/%Y")
-    elements.append(Paragraph(f"Documento generato il {oggi}", styles["Italic"]))
-
-    doc.build(elements)
-    buffer.seek(0)
-
-    return send_file(
-        buffer,
-        as_attachment=False,
-        download_name="promemoria_appuntamenti.pdf",
-        mimetype="application/pdf"
-    )
 
 @app.route("/update_stato", methods=["POST"])
 @login_required
@@ -1698,8 +1198,6 @@ def chiudi_pacchetto(pacchetto_id):
     invalidate_dashboard_caches()
 
     return redirect(request.referrer)
-
-
 
 
 # ===============================
@@ -1771,8 +1269,17 @@ Christian Di Tommaso
 
 
 # ===============================
-# AVVIO SERVER
+# REGISTRAZIONE ROTTE CLIENTI
 # ===============================
+
+register_client_routes(
+    app, login_required,
+    get_database=lambda: supabase,
+    studio_now=lambda: studio_now(),
+    invalidate_calendar_cache=invalidate_calendar_cache,
+    invalidate_dashboard_caches=invalidate_dashboard_caches,
+)
+
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5050, debug=False)

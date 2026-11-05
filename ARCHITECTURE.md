@@ -1,14 +1,15 @@
 # Struttura del gestionale
 
-Primo intervento di separazione, 3 novembre 2026: estrazione dei servizi email e
-calendario personale. L'applicazione rimane Flask, con lo stesso avvio
-`gunicorn app:app` e lo stesso frontend.
+Riorganizzazione graduale: servizi email e calendario personale separati il
+3 novembre 2026, rotte clienti il 4 novembre 2026. L'applicazione rimane Flask,
+con lo stesso avvio `gunicorn app:app` e lo stesso frontend.
 
 ## Moduli
 
 | File | Responsabilità |
 | --- | --- |
-| `app.py` | Configurazione Flask, autenticazione, CSRF, rotte e composizione dei servizi. |
+| `app.py` | Configurazione Flask, autenticazione, CSRF, rotte agenda/pacchetti/pagamenti e composizione dei moduli. |
+| `routes/clients.py` | API anagrafica, compleanni, archivio, scheda cliente, note e PDF promemoria. |
 | `services/mail_transport.py` | Trasporto Gmail/Resend, allegati e classificazione controllata degli errori. |
 | `services/calendar_files.py` | Generazione ICS, timezone Europe/Rome, escape, piegatura delle righe e nomi dei file. |
 | `services/appointment_notifications.py` | Conferme per destinatario, dati delle sedute e coordinamento con il tracciamento. |
@@ -27,6 +28,19 @@ non produce effetti collaterali. Il trasporto legge le stesse variabili ambiente
 al momento dell'invio; i nomi e i criteri di selezione del provider sono conservati.
 I log del trasporto usano il logger del modulo e gli stessi filtri di richiesta.
 
+`register_client_routes` registra le 11 rotte clienti con i nomi di endpoint
+preesistenti e applica lo stesso decoratore `login_required`. I controlli CSRF
+restano quelli globali dell'applicazione. La registrazione esplicita evita di
+cambiare i riferimenti `url_for` nei template.
+
+`ClientViews` riceve database, orologio dello studio, logger e funzioni di
+invalidazione delle cache. Database e orologio vengono risolti tramite funzioni
+fornite da app.py, così i test continuano a usare dati e date controllati.
+Importare `routes.clients` non importa app.py, non legge credenziali e non apre
+connessioni. Anche `routes/__init__.py` non produce effetti collaterali.
+Le query, i controlli anagrafici, il contenuto del PDF e le operazioni transazionali
+di cancellazione sono conservati.
+
 ## Compatibilità verificata
 
 - Confronto di tutte le 39 rotte: percorso, metodi HTTP ed endpoint identici.
@@ -37,14 +51,17 @@ I log del trasporto usano il logger del modulo e gli stessi filtri di richiesta.
 - Test aggiornati per sostituire i trasporti nel modulo che ora li contiene,
   mantenendo le stesse asserzioni e il blocco degli invii reali.
 - Server browser aggiornato per bloccare i trasporti nella nuova posizione.
+- Nel secondo intervento, confronto AST delle 12 funzioni clienti spostate e
+  delle 47 definizioni rimaste in app.py: logica invariata.
+- Flusso browser dell'anagrafica esteso alla generazione del PDF promemoria.
 
 Esito locale: **244 test Python, 90 test JavaScript e 21 test browser superati**.
 La suite browser ha verificato Chromium, WebKit desktop e WebKit mobile con
 dati sintetici e trasporti bloccati; nessun invio reale o scrittura in produzione.
 
 Non occorrono migrazioni del database, nuove dipendenze o cambiamenti alle
-variabili Render. I sorgenti sotto services/ devono essere pubblicati insieme ad
-app.py; non pubblicare soltanto il file principale.
+variabili Render. I sorgenti sotto services/ e routes/ devono essere pubblicati
+insieme ad app.py; non pubblicare soltanto il file principale.
 
 ## Verifiche ripetibili
 
@@ -65,7 +82,6 @@ I test di email verificano trasporti simulati e allegati, senza consegna reale.
 
 ## Passi successivi
 
-Agenda, clienti e pagamenti sono ancora registrati in app.py. Conviene estrarre
-una sezione alla volta, conservando gli URL e ripetendo le verifiche dopo ogni
-intervento. La riorganizzazione di queste sezioni non è inclusa in questo primo
-passaggio. Le funzionalità dei pagamenti restano quelle attuali.
+Agenda, assegnazione dei pacchetti e pagamenti sono ancora registrati in app.py.
+Conviene estrarre una sezione alla volta, conservando gli URL e ripetendo le
+verifiche dopo ogni intervento. Le funzionalità dei pagamenti restano quelle attuali.

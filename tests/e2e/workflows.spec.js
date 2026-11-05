@@ -51,6 +51,10 @@ test('creazione cliente, ricerca con accenti, vista lista e modifica anagrafica 
     expect(customer.nome).toBe('Émile aggiornato');
     expect(customer.data_nascita).toBe('1991-05-12');
     expect(customer.telefono).toBe('393330000002');
+    const reminder = await page.request.get(`/cliente/${customer.id}/promemoria`);
+    expect(reminder.status()).toBe(200);
+    expect(reminder.headers()['content-type']).toBe('application/pdf');
+    expect((await reminder.body()).subarray(0, 5).toString()).toBe('%PDF-');
 });
 
 test('appuntamento di coppia: salvataggio, ricarica, modifica e cancellazione confermata', async ({ page, scenario }) => {
